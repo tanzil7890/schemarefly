@@ -152,6 +152,11 @@ pub struct Config {
     #[serde(default)]
     pub warehouse: Option<WarehouseConfig>,
 
+    /// Redact sensitive data (schema names, column names, table names) in diagnostics and logs
+    /// This is useful for privacy/security when sharing reports or logs
+    #[serde(default)]
+    pub redact_sensitive_data: bool,
+
     /// Project root path (for resolving relative paths)
     #[serde(skip)]
     pub project_root: std::path::PathBuf,
@@ -164,6 +169,7 @@ impl Default for Config {
             severity: SeverityThreshold::default(),
             allowlist: AllowlistRules::default(),
             warehouse: None,
+            redact_sensitive_data: false,
             project_root: std::env::current_dir().unwrap_or_default(),
         }
     }

@@ -98,8 +98,43 @@ impl Report {
     }
 
     /// Create a report from diagnostics
-    pub fn from_diagnostics(diagnostics: Vec<Diagnostic>) -> Self {
+    pub fn from_diagnostics(mut diagnostics: Vec<Diagnostic>) -> Self {
         use crate::diagnostic::Severity;
+
+        // Sort diagnostics for deterministic output
+        // Order: Error > Warn > Info, then by code, then by location
+        diagnostics.sort();
+
+        let summary = ReportSummary {
+            total: diagnostics.len(),
+            errors: diagnostics.iter().filter(|d| d.severity == Severity::Error).count(),
+            warnings: diagnostics.iter().filter(|d| d.severity == Severity::Warn).count(),
+            info: diagnostics.iter().filter(|d| d.severity == Severity::Info).count(),
+            models_checked: 0,
+            contracts_validated: 0,
+        };
+
+        Self {
+            version: ReportVersion::CURRENT,
+            timestamp: chrono::Utc::now().to_rfc3339(),
+            summary,
+            diagnostics,
+            metadata: None,
+        }
+    }
+
+    /// Create a report from diagnostics with optional redaction
+    pub fn from_diagnostics_with_config(mut diagnostics: Vec<Diagnostic>, config: &crate::Config) -> Self {
+        use crate::diagnostic::Severity;
+
+        // Sort diagnostics for deterministic output
+        // Order: Error > Warn > Info, then by code, then by location
+        diagnostics.sort();
+
+        // Redact sensitive data if configured
+        if config.redact_sensitive_data {
+            diagnostics = diagnostics.into_iter().map(|d| d.redact()).collect();
+        }
 
         let summary = ReportSummary {
             total: diagnostics.len(),

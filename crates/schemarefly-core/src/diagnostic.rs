@@ -113,7 +113,7 @@ impl std::fmt::Display for Severity {
 }
 
 /// Source location in a file
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct Location {
     /// File path relative to project root
     pub file: String,
@@ -167,7 +167,7 @@ impl Location {
 }
 
 /// A diagnostic message with structured metadata
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Diagnostic {
     /// Stable diagnostic code
     pub code: DiagnosticCode,
@@ -223,6 +223,74 @@ impl Diagnostic {
         self.impact = impact;
         self
     }
+
+    /// Redact sensitive data from diagnostic messages
+    ///
+    /// Replaces schema names, column names, and table names with `<REDACTED>`.
+    /// This is useful for sharing diagnostics/reports without exposing sensitive metadata.
+    pub fn redact(mut self) -> Self {
+        use regex::Regex;
+
+        // Redact column names in single quotes (e.g., 'user_id' -> '<REDACTED>')
+        let column_pattern = Regex::new(r"'([a-zA-Z_][a-zA-Z0-9_]*)'").unwrap();
+        self.message = column_pattern.replace_all(&self.message, "'<REDACTED>'").to_string();
+
+        // Redact table/schema names in backticks (e.g., `schema.table` -> `<REDACTED>`)
+        let table_pattern = Regex::new(r"`([a-zA-Z_][a-zA-Z0-9_\.]*)`").unwrap();
+        self.message = table_pattern.replace_all(&self.message, "`<REDACTED>`").to_string();
+
+        // Redact expected/actual values
+        if let Some(expected) = &self.expected {
+            self.expected = Some(Self::redact_value(expected));
+        }
+        if let Some(actual) = &self.actual {
+            self.actual = Some(Self::redact_value(actual));
+        }
+
+        // Redact downstream impact (model names)
+        self.impact = self.impact.iter().map(|_| "<REDACTED>".to_string()).collect();
+
+        self
+    }
+
+    /// Helper to redact a value string
+    fn redact_value(value: &str) -> String {
+        // If it looks like a type name (INT64, STRING, etc.), keep it
+        // Otherwise redact it
+        if value.chars().all(|c| c.is_uppercase() || c.is_numeric()) {
+            value.to_string()
+        } else {
+            "<REDACTED>".to_string()
+        }
+    }
+}
+
+/// Custom ordering for deterministic output
+///
+/// Diagnostics are ordered by:
+/// 1. Severity (Error > Warn > Info) - most severe first
+/// 2. Diagnostic code (alphabetically)
+/// 3. Location (file path, then line, then column)
+impl Ord for Diagnostic {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        // Reverse severity order (Error > Warn > Info)
+        let severity_order = |s: &Severity| match s {
+            Severity::Error => 0,
+            Severity::Warn => 1,
+            Severity::Info => 2,
+        };
+
+        severity_order(&self.severity)
+            .cmp(&severity_order(&other.severity))
+            .then_with(|| self.code.as_str().cmp(other.code.as_str()))
+            .then_with(|| self.location.cmp(&other.location))
+    }
+}
+
+impl PartialOrd for Diagnostic {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
 }
 
 #[cfg(test)]
@@ -248,5 +316,62 @@ mod tests {
         let json = serde_json::to_string(&diag).unwrap();
         assert!(json.contains("CONTRACT_MISSING_COLUMN"));
         assert!(json.contains("error"));
+    }
+
+    #[test]
+    fn diagnostic_ordering_is_deterministic() {
+        // Create diagnostics in random order
+        let mut diagnostics = vec![
+            Diagnostic::new(DiagnosticCode::Info, Severity::Info, "Info message")
+                .with_location(Location::new("models/c.sql")),
+            Diagnostic::new(DiagnosticCode::ContractMissingColumn, Severity::Error, "Error 1")
+                .with_location(Location::new("models/b.sql")),
+            Diagnostic::new(DiagnosticCode::Warning, Severity::Warn, "Warning")
+                .with_location(Location::new("models/a.sql")),
+            Diagnostic::new(DiagnosticCode::ContractTypeMismatch, Severity::Error, "Error 2")
+                .with_location(Location::new("models/a.sql")),
+        ];
+
+        diagnostics.sort();
+
+        // Expected order:
+        // 1. Error with CONTRACT_MISSING_COLUMN in models/b.sql
+        // 2. Error with CONTRACT_TYPE_MISMATCH in models/a.sql (same severity, code alphabetically earlier but file comes first in sort)
+        // 3. Warn with WARNING in models/a.sql
+        // 4. Info with INFO in models/c.sql
+
+        assert_eq!(diagnostics[0].severity, Severity::Error);
+        assert_eq!(diagnostics[0].code.as_str(), "CONTRACT_MISSING_COLUMN");
+        assert_eq!(diagnostics[0].location.as_ref().unwrap().file, "models/b.sql");
+
+        assert_eq!(diagnostics[1].severity, Severity::Error);
+        assert_eq!(diagnostics[1].code.as_str(), "CONTRACT_TYPE_MISMATCH");
+        assert_eq!(diagnostics[1].location.as_ref().unwrap().file, "models/a.sql");
+
+        assert_eq!(diagnostics[2].severity, Severity::Warn);
+        assert_eq!(diagnostics[3].severity, Severity::Info);
+    }
+
+    #[test]
+    fn diagnostic_redaction_works() {
+        let diag = Diagnostic::new(
+            DiagnosticCode::ContractMissingColumn,
+            Severity::Error,
+            "Column 'user_id' missing in table `analytics.users`"
+        )
+        .with_comparison("INT64", "user_data")
+        .with_impact(vec!["analytics.orders".to_string(), "analytics.sessions".to_string()]);
+
+        let redacted = diag.redact();
+
+        // Column names should be redacted
+        assert_eq!(redacted.message, "Column '<REDACTED>' missing in table `<REDACTED>`");
+
+        // Type names (all uppercase) should be kept, others redacted
+        assert_eq!(redacted.expected, Some("INT64".to_string()));
+        assert_eq!(redacted.actual, Some("<REDACTED>".to_string()));
+
+        // Impact should be redacted
+        assert_eq!(redacted.impact, vec!["<REDACTED>".to_string(), "<REDACTED>".to_string()]);
     }
 }
