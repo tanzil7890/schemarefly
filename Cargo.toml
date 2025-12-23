@@ -6,6 +6,7 @@ members = [
     "crates/schemarefly-sql",
     "crates/schemarefly-catalog",
     "crates/schemarefly-engine",
+    "crates/schemarefly-incremental",
     "crates/schemarefly-cli",
     "crates/schemarefly-lsp",
 ]
@@ -29,7 +30,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 sqlparser = "0.53"
 
 # Incremental engine
-salsa = "0.17"
+salsa = "0.25"
 
 # LSP
 tower-lsp = "0.20"
@@ -44,6 +45,7 @@ colored = "2.1"
 
 # Testing
 pretty_assertions = "1.4"
+criterion = { version = "0.5", features = ["html_reports"] }
 
 # Async runtime
 tokio = { version = "1.40", features = ["full"] }
@@ -54,3 +56,4 @@ schemarefly-dbt = { path = "crates/schemarefly-dbt" }
 schemarefly-sql = { path = "crates/schemarefly-sql" }
 schemarefly-catalog = { path = "crates/schemarefly-catalog" }
 schemarefly-engine = { path = "crates/schemarefly-engine" }
+schemarefly-incremental = { path = "crates/schemarefly-incremental" }

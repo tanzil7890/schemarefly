@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::path::Path;
 
 /// dbt manifest.json structure (subset of fields we care about)
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Manifest {
     /// Metadata about the manifest
     pub metadata: ManifestMetadata,
@@ -63,7 +63,7 @@ impl Manifest {
 }
 
 /// Manifest metadata
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ManifestMetadata {
     pub dbt_schema_version: String,
     pub dbt_version: String,
@@ -73,7 +73,7 @@ pub struct ManifestMetadata {
 }
 
 /// A node in the manifest (model, test, snapshot, etc.)
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ManifestNode {
     /// Unique identifier (e.g., "model.my_project.users")
     pub unique_id: String,
@@ -127,7 +127,7 @@ pub struct ManifestNode {
 }
 
 /// Node configuration (from dbt_project.yml or model config)
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct NodeConfig {
     /// Whether the node is enabled
     #[serde(default = "default_true")]
@@ -147,14 +147,14 @@ fn default_true() -> bool {
 }
 
 /// Contract configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ContractConfig {
     /// Whether the contract is enforced
     pub enforced: bool,
 }
 
 /// Column definition from manifest
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ColumnDefinition {
     /// Column name
     pub name: String,
@@ -169,7 +169,7 @@ pub struct ColumnDefinition {
 }
 
 /// Dependencies structure
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct DependsOn {
     /// List of node unique_ids this node depends on
     #[serde(default)]
@@ -177,7 +177,7 @@ pub struct DependsOn {
 }
 
 /// A source in the manifest
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ManifestSource {
     /// Unique identifier (e.g., "source.my_project.raw.users")
     pub unique_id: String,

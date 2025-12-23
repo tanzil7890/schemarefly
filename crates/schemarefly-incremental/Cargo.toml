@@ -1,0 +1,27 @@
+[package]
+name = "schemarefly-incremental"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+schemarefly-core.workspace = true
+schemarefly-dbt.workspace = true
+schemarefly-sql.workspace = true
+schemarefly-engine.workspace = true
+schemarefly-catalog.workspace = true
+salsa.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+thiserror.workspace = true
+async-trait = "0.1"
+tokio = { workspace = true, features = ["time"] }
+
+[dev-dependencies]
+criterion.workspace = true
+
+[[bench]]
+name = "incremental_benchmarks"
+harness = false

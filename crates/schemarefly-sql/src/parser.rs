@@ -104,7 +104,7 @@ impl Default for SqlParser {
 }
 
 /// Successfully parsed SQL with AST
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ParsedSql {
     /// Original SQL string
     pub sql: String,
