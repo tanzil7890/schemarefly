@@ -1,0 +1,24 @@
+[package]
+name = "schemarefly-compat"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+schemarefly-core = { path = "../schemarefly-core" }
+schemarefly-dbt = { path = "../schemarefly-dbt" }
+schemarefly-sql = { path = "../schemarefly-sql" }
+schemarefly-catalog = { path = "../schemarefly-catalog" }
+schemarefly-incremental = { path = "../schemarefly-incremental" }
+
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+anyhow = "1.0"
+tokio = { version = "1.35", features = ["full"] }
+walkdir = "2.4"
+colored = "2.1"
+
+[dev-dependencies]
+tempfile = "3.8"
