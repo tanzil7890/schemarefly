@@ -530,31 +530,55 @@ Snowflake documents INFORMATION\_SCHEMA as a metadata dictionary and provides vi
 
 ---
 
-## **Phase 6 — Incremental performance hardening (Week 8–9)**
+## **Phase 6 — Incremental performance hardening (Week 8–9)** ✅ **COMPLETED**
 
 This is where Rust \+ Salsa become the product.
 
-**Build**
+**Build** ✅
 
-* Make Salsa inputs granular:
+* ✅ Make Salsa inputs granular:
 
-  * FileText(path) is an input
+  * ✅ FileText(path) is an input → Implemented as `SqlFile` with path + contents
 
-  * ManifestJson is an input
+  * ✅ ManifestJson is an input → Implemented as `ManifestInput`
 
-  * CatalogJson is an input
+  * ✅ CatalogJson is an input → Implemented as `CatalogInput`
 
-* Ensure derived queries only depend on what they need
+  * ✅ ConfigInput for schemarefly.toml configuration
 
-* Add caching for warehouse metadata fetches (TTL \+ key by table id)
+* ✅ Ensure derived queries only depend on what they need → Salsa tracks dependencies automatically
 
-**Acceptance**
+* ✅ Add caching for warehouse metadata fetches (TTL \+ key by table id) → `WarehouseCache` with configurable TTL
 
-* Editing one model triggers recompute only for:
+**Acceptance** ✅
 
-  * that model \+ dependents
+* ✅ Editing one model triggers recompute only for:
 
-* Large DAGs remain fast (you can publish benchmarks in the repo).
+  * that model \+ dependents → Tracked functions: `parse_sql()`, `infer_schema()`, `check_contract()`, `downstream_models()`
+
+* ✅ Large DAGs remain fast (benchmarks published in repo) → Comprehensive criterion benchmarks implemented
+  * `benches/incremental_benchmarks.rs` with 7 benchmark groups
+  * Manifest parsing: 100, 500, 1000 models
+  * SQL parsing cache efficiency (cold/warm)
+  * Schema inference with complex SQL
+  * Incremental recomputation (modify 1 of 100 files)
+  * Downstream model discovery
+  * End-to-end contract checking
+  * Cache efficiency metrics
+
+**Implementation Details:**
+
+* **New Crate**: `schemarefly-incremental` with full Salsa 0.25 integration
+* **Salsa Inputs**: SqlFile, ManifestInput, CatalogInput, ConfigInput (all granular)
+* **Tracked Functions**:
+  * `manifest()` - Parse manifest JSON to Manifest struct
+  * `parse_sql()` - Parse SQL file to AST (memoized per file)
+  * `infer_schema()` - Infer output schema from SQL (depends on parse + manifest)
+  * `check_contract()` - Validate against dbt contracts (depends on infer + manifest)
+  * `downstream_models()` - Get dependency graph (depends on manifest)
+* **Warehouse Caching**: TTL-based thread-safe cache with Arc<RwLock<>>, automatic eviction, statistics tracking
+* **Database**: Industry-standard Salsa 0.25 pattern with `SchemaReflyDatabase` implementing `salsa::Database`
+* **Type Safety**: Added `PartialEq` to Manifest, ParsedSql, and related types for Salsa caching
 
 ---
 
