@@ -5,8 +5,8 @@ use std::path::{Path, PathBuf};
 
 use schemarefly_core::{Report, Config, Diagnostic};
 use schemarefly_dbt::{Manifest, DependencyGraph, ContractExtractor};
-use schemarefly_engine::{ContractDiff, DriftDetection};
-use schemarefly_sql::{SqlParser, DbtFunctionExtractor, SchemaInference, InferenceContext};
+use schemarefly_engine::DriftDetection;
+use schemarefly_sql::DbtFunctionExtractor;
 use schemarefly_catalog::{WarehouseAdapter, TableIdentifier, BigQueryAdapter, SnowflakeAdapter};
 
 /// SchemaRefly - Schema contract verification for dbt
@@ -99,15 +99,17 @@ async fn main() -> Result<()> {
     }
 }
 
-/// Check command - validate schema contracts
+/// Check command - validate schema contracts (with Salsa incremental computation)
 fn check_command(
     config: &Config,
     output: &PathBuf,
     markdown: Option<&Path>,
     verbose: bool,
 ) -> Result<()> {
+    use schemarefly_incremental::{SchemaReflyDatabase, queries};
+
     if verbose {
-        eprintln!("{}", "Running schema contract checks...".cyan());
+        eprintln!("{}", "Running schema contract checks (with incremental computation)...".cyan());
     }
 
     // Find manifest path
@@ -123,21 +125,26 @@ fn check_command(
         eprintln!("{} {}", "Loading manifest from:".cyan(), manifest_path.display());
     }
 
-    // Load manifest
-    let manifest = Manifest::from_file(manifest_path)?;
+    // Initialize Salsa database for incremental computation
+    let db = SchemaReflyDatabase::default();
+
+    // Read manifest JSON
+    let manifest_json = std::fs::read_to_string(manifest_path)?;
+
+    // Create Salsa inputs
+    let manifest_input = queries::ManifestInput::new(&db, manifest_json);
+    let config_input = queries::ConfigInput::new(&db, config.clone());
 
     if verbose {
         eprintln!("{}", "Building dependency graph...".cyan());
     }
 
+    // Get manifest from Salsa (cached)
+    let manifest_opt = queries::manifest(&db, manifest_input);
+    let manifest = manifest_opt.ok_or_else(|| anyhow::anyhow!("Failed to parse manifest"))?;
+
     // Build dependency graph for impact analysis
     let dag = DependencyGraph::from_manifest(&manifest);
-
-    // Create inference context with table schemas from manifest
-    let context = InferenceContext::from_manifest(&manifest).with_catalog(true);
-
-    // Create SQL parser based on config dialect
-    let parser = SqlParser::from_dialect(&config.dialect);
 
     if verbose {
         eprintln!("{}", "Checking contracts for all models...".cyan());
@@ -151,7 +158,7 @@ fn check_command(
     // Check each model with a contract
     for (node_id, node) in manifest.models() {
         // Extract contract if present
-        if let Some(contract) = ContractExtractor::extract_from_node(node) {
+        if let Some(_contract) = ContractExtractor::extract_from_node(node) {
             models_with_contracts += 1;
 
             if verbose {
@@ -202,54 +209,21 @@ fn check_command(
             // Preprocess dbt template functions
             let (preprocessed_sql, _) = DbtFunctionExtractor::preprocess(&sql_content, Some(&manifest));
 
-            // Parse SQL
-            let parsed = match parser.parse(&preprocessed_sql, Some(&sql_file_path)) {
-                Ok(p) => p,
-                Err(e) => {
-                    // Convert parse error to diagnostic
-                    all_diagnostics.push(e.to_diagnostic());
-                    continue;
-                }
-            };
+            // Create Salsa input for this SQL file (enables caching per file)
+            let sql_file = queries::SqlFile::new(&db, sql_file_path.clone(), preprocessed_sql);
 
-            // Infer schema
-            let inference = SchemaInference::new(&context);
-            let inferred_schema = match parsed.first_statement() {
-                Some(stmt) => match inference.infer_statement(stmt) {
-                    Ok(schema) => schema,
-                    Err(e) => {
-                        // Convert inference error to diagnostic
-                        all_diagnostics.push(inference.create_diagnostic(&e));
-                        continue;
-                    }
-                },
-                None => {
-                    let diag = Diagnostic::new(
-                        schemarefly_core::DiagnosticCode::SqlParseError,
-                        schemarefly_core::Severity::Error,
-                        format!("No SQL statement found in {}", sql_file_path.display()),
-                    );
-                    all_diagnostics.push(diag);
-                    continue;
-                }
-            };
-
-            // Compare inferred schema to contract
-            let diff = ContractDiff::compare(
-                &node_id,
-                &contract,
-                &inferred_schema,
-                Some(sql_file_path.display().to_string()),
-            );
+            // Use Salsa to check contract (cached if file unchanged)
+            // This will automatically call parse_sql -> infer_schema -> compare
+            let diagnostics = queries::check_contract(&db, sql_file, config_input, manifest_input);
 
             // Add downstream impact to each diagnostic
             let downstream = dag.downstream(&node_id);
-            let has_errors = diff.has_errors();
-            let has_warnings = diff.has_warnings();
-            let error_count = diff.error_count();
-            let warning_count = diff.warning_count();
+            let has_errors = diagnostics.iter().any(|d| d.severity == schemarefly_core::Severity::Error);
+            let has_warnings = diagnostics.iter().any(|d| d.severity == schemarefly_core::Severity::Warn);
+            let error_count = diagnostics.iter().filter(|d| d.severity == schemarefly_core::Severity::Error).count();
+            let warning_count = diagnostics.iter().filter(|d| d.severity == schemarefly_core::Severity::Warn).count();
 
-            for mut diag in diff.diagnostics {
+            for mut diag in diagnostics {
                 diag.impact = downstream.clone();
                 all_diagnostics.push(diag);
             }

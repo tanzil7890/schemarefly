@@ -15,6 +15,7 @@ schemarefly-dbt.workspace = true
 schemarefly-engine = { path = "../schemarefly-engine" }
 schemarefly-sql = { path = "../schemarefly-sql" }
 schemarefly-catalog = { path = "../schemarefly-catalog" }
+schemarefly-incremental = { path = "../schemarefly-incremental" }
 clap.workspace = true
 colored.workspace = true
 anyhow.workspace = true
