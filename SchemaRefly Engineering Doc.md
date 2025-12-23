@@ -615,35 +615,49 @@ Use tower-lsp to implement LSP server behaviors, aligned with the LSP spec. [Git
 
 ---
 
-## **Phase 8 — “Industry standard” hardening (ongoing)**
+## **Phase 8 — "Industry standard" hardening (ongoing)** ⚙️ **IN PROGRESS**
 
 If you want people to trust this in real orgs, bake these in:
 
 1. **Stable compatibility promises**
 
-* Versioned report schema
+* ✅ Versioned report schema (ReportVersion v1.0)
 
-* Versioned diagnostics codes
+* ✅ Versioned diagnostics codes (stable enum with as_str(), immutable contract)
 
-* Semantic versioning for the binary
+* ✅ Semantic versioning for the binary (workspace version 0.1.0, Clap auto-detects)
 
 2. **Deterministic output**
 
-* same input → same report ordering and hashes
+* ✅ same input → same report ordering (diagnostics sorted by severity DESC, code ASC, location ASC)
+
+* ⚠️ same input → same hashes (pending: need hash/checksum verification)
 
 3. **Security posture**
 
-* Warehouse access is read-only metadata
+* ✅ Warehouse access is read-only metadata (WarehouseAdapter trait only reads INFORMATION_SCHEMA)
 
-* No row-level reads
+* ✅ No row-level reads (metadata-only queries, no SELECT from data tables)
 
-* Redact schema names/columns in logs if configured
+* ✅ Redact schema names/columns in logs if configured (Config.redact_sensitive_data flag)
 
 4. **Extensibility**
 
-* Dialect plugin interface (even if internal at first)
+* ⚠️ Dialect plugin interface (hard-coded enum, no pluggable system yet)
 
-* Warehouse adapter interface (BigQuery/Snowflake first)
+* ✅ Warehouse adapter interface (async trait WarehouseAdapter for BigQuery/Snowflake)
+
+**Implementation Summary:**
+* **Deterministic Ordering** (`diagnostic.rs`): Custom Ord implementation for Diagnostic with Error > Warn > Info, then code, then location
+* **Log Redaction** (`diagnostic.rs`): `redact()` method replaces schema/column/table names with `<REDACTED>`, configurable via `redact_sensitive_data` flag
+* **Report Sorting** (`report.rs`): `from_diagnostics()` automatically sorts diagnostics before building report
+* **Type Safety**: Location and Diagnostic implement Ord for consistent sorting
+* **Tests**: Added `diagnostic_ordering_is_deterministic()` and `diagnostic_redaction_works()` tests
+
+**Remaining Work:**
+- [ ] Content hashing for deterministic output verification
+- [ ] Dialect plugin system (make dialects extensible without modifying enum)
+- [ ] Adapter plugin documentation (guide for implementing custom warehouse adapters)
 
 ---
 
