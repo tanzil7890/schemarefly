@@ -25,3 +25,26 @@ allow_extra_columns = [
 skip_models = [
     # "temp_*"
 ]
+
+# Warehouse configuration for drift detection
+# Uncomment and configure one of the following warehouse types:
+
+# BigQuery configuration (using Application Default Credentials)
+# [warehouse]
+# type = "bigquery"
+# project_id = "my-gcp-project"
+
+# BigQuery configuration (using service account JSON)
+# [warehouse]
+# type = "bigquery"
+# project_id = "my-gcp-project"
+# credentials = "/path/to/service-account-key.json"
+
+# Snowflake configuration
+# [warehouse]
+# type = "snowflake"
+# account = "xy12345.us-east-1"
+# username = "my_user"
+# password = "my_password"
+# warehouse = "COMPUTE_WH"  # Optional
+# role = "ANALYST"          # Optional

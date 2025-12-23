@@ -57,6 +57,27 @@ impl SeverityThreshold {
     }
 }
 
+/// Warehouse connection configuration for drift detection
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct WarehouseConfig {
+    /// Warehouse type (bigquery, snowflake, etc.)
+    #[serde(rename = "type")]
+    pub warehouse_type: String,
+
+    /// Connection settings (warehouse-specific)
+    #[serde(flatten)]
+    pub settings: HashMap<String, String>,
+}
+
+impl Default for WarehouseConfig {
+    fn default() -> Self {
+        Self {
+            warehouse_type: "bigquery".to_string(),
+            settings: HashMap::new(),
+        }
+    }
+}
+
 /// Allowlist rules for specific models or patterns
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AllowlistRules {
@@ -127,6 +148,10 @@ pub struct Config {
     #[serde(default)]
     pub allowlist: AllowlistRules,
 
+    /// Warehouse connection configuration (for drift detection)
+    #[serde(default)]
+    pub warehouse: Option<WarehouseConfig>,
+
     /// Project root path (for resolving relative paths)
     #[serde(skip)]
     pub project_root: std::path::PathBuf,
@@ -138,6 +163,7 @@ impl Default for Config {
             dialect: DialectConfig::default(),
             severity: SeverityThreshold::default(),
             allowlist: AllowlistRules::default(),
+            warehouse: None,
             project_root: std::env::current_dir().unwrap_or_default(),
         }
     }
