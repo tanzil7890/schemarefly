@@ -672,7 +672,76 @@ Phase 8 industry-standard hardening is **functionally complete** for v1 release.
 
 ---
 
-# **Concrete “V1 done” definition (what you ship)**
+## **Phase 9 — Compatibility Test Suite** ✅ **COMPLETED**
+
+Real-world validation suite testing SchemaRefly against 10-20 actual dbt projects (from v1_extended.md section 1: "Prove it on real dbt repos").
+
+**Build Requirements:**
+1. ✅ Test harness framework to run `schemarefly check` programmatically
+2. ✅ Metrics collection tracking parse success rate, schema inference rate, top failure codes
+3. ✅ Model type detection for unsupported dbt models (Python, ephemeral, seeds, snapshots)
+4. ✅ Terminal and JSON reporting with aggregate statistics
+5. ✅ Example binary to run compat suite against real dbt projects
+
+**Acceptance Criteria:**
+* ✅ Can test against any dbt project with manifest.json
+* ✅ Tracks parse success rate (% models that parse successfully)
+* ✅ Tracks schema inference rate (% models with inferred schema)
+* ✅ Identifies top failure codes with sample error messages
+* ✅ Detects and skips unsupported model types with helpful diagnostics
+* ✅ Generates human-readable terminal report with color-coded thresholds
+* ✅ Exports machine-readable JSON report for CI/CD integration
+
+**Implementation Summary:**
+* **New Crate**: `crates/schemarefly-compat` - Dedicated compatibility testing infrastructure
+* **Core Components**:
+  - `CompatTestHarness`: Main test runner that processes dbt projects
+  - `CompatMetrics`: Metrics collection (success rates, failure codes, samples)
+  - `ModelDetection`: Detects unsupported model types (Python, ephemeral, seeds, snapshots)
+  - `CompatReport`: Terminal and JSON reporting with aggregate statistics
+* **Metrics Tracked**:
+  - Parse success rate (parsed / total models)
+  - Schema inference rate (inferred / total models)
+  - Top failure codes with up to 3 samples each
+  - Unsupported model count (Python, ephemeral, seeds, snapshots)
+* **Model Type Detection**:
+  - Automatically identifies ephemeral models (no contract support)
+  - Detects seeds (CSV files, no contract support)
+  - Detects snapshots (no contract support)
+  - Provides helpful diagnostic messages for unsupported types
+* **Reporting**:
+  - Colored terminal output with ✓/!/✗ indicators
+  - Performance thresholds (Excellent: ≥95% parse, ≥90% inference; Good: ≥85% parse, ≥75% inference)
+  - JSON export for CI/CD integration
+* **Example Binary**: `examples/run_compat_suite.rs` - CLI tool to test any dbt project
+
+**Files Created:**
+* `crates/schemarefly-compat/src/lib.rs` - Module exports and documentation
+* `crates/schemarefly-compat/src/metrics.rs` - CompatMetrics, ModelResult, FailureDetail (150+ lines)
+* `crates/schemarefly-compat/src/harness.rs` - CompatTestHarness test runner (220+ lines)
+* `crates/schemarefly-compat/src/model_detection.rs` - Model type detection with diagnostic messages (170+ lines)
+* `crates/schemarefly-compat/src/report.rs` - Terminal and JSON reporting (150+ lines)
+* `crates/schemarefly-compat/examples/run_compat_suite.rs` - Example CLI binary (70+ lines)
+* `crates/schemarefly-compat/README.md` - Comprehensive usage guide (250+ lines)
+
+**Usage:**
+```bash
+# Run compat suite against a dbt project
+cargo run --package schemarefly-compat --example run_compat_suite -- /path/to/dbt/project bigquery
+
+# Output includes:
+# - Aggregate statistics (total models, parse success rate, inference rate)
+# - Per-project breakdown with top failure codes
+# - Failure samples for debugging
+# - JSON report exported to schemarefly-compat-report.json
+```
+
+**Phase 9 Summary:**
+Phase 9 compatibility test suite is **complete** with production-ready infrastructure for validating SchemaRefly against real dbt projects. This enables systematic testing across dialects (BigQuery, Snowflake, Postgres) and project sizes to identify edge cases and drive inference engine improvements.
+
+---
+
+# **Concrete "V1 done" definition (what you ship)**
 
 A single Rust binary that can:
 
