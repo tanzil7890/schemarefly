@@ -32,7 +32,19 @@ Create a workspace with clear boundaries:
 
 * Implements SQL schema inference \+ limited expression typing (MVP subset)
 
-4. **schemarefly-catalog**
+* Integrates with schemarefly-jinja for Jinja template preprocessing
+
+4. **schemarefly-jinja** ✅ **IMPLEMENTED**
+
+* Jinja2 template preprocessing for dbt SQL models using MiniJinja [GitHub](https://github.com/mitsuhiko/minijinja)
+
+* Implements dbt functions: `ref()`, `source()`, `var()`, `config()`
+
+* Automatic Jinja detection and rendering before SQL parsing
+
+* Comprehensive error diagnostics with JINJA_RENDER_ERROR and JINJA_UNDEFINED_VARIABLE codes
+
+5. **schemarefly-catalog**
 
 * Warehouse metadata adapters (read-only)
 
@@ -738,6 +750,106 @@ cargo run --package schemarefly-compat --example run_compat_suite -- /path/to/db
 
 **Phase 9 Summary:**
 Phase 9 compatibility test suite is **complete** with production-ready infrastructure for validating SchemaRefly against real dbt projects. This enables systematic testing across dialects (BigQuery, Snowflake, Postgres) and project sizes to identify edge cases and drive inference engine improvements.
+
+---
+
+## **Phase 10 — Jinja2 Template Support** ✅ **COMPLETED**
+
+Industry-standard Jinja2 template preprocessing for dbt SQL models, enabling SchemaRefly to parse real dbt projects with templates ({{ ref() }}, {% set %}, {# comments #}, etc.).
+
+**Build Requirements:**
+1. ✅ Jinja2 template detection and preprocessing using MiniJinja
+2. ✅ dbt-specific functions: `ref()`, `source()`, `var()`, `config()`
+3. ✅ Integration with SQL parser for automatic Jinja rendering
+4. ✅ Comprehensive error diagnostics for Jinja template errors
+5. ✅ Compatibility with real dbt projects (tested with Jaffle Shop)
+
+**Acceptance Criteria:**
+* ✅ Can parse dbt models with Jinja templates ({{ }}, {% %}, {# #})
+* ✅ Implements dbt functions (ref, source, var, config)
+* ✅ Automatically detects and renders Jinja before SQL parsing
+* ✅ Provides clear error diagnostics for Jinja template errors
+* ✅ 100% parse success on Jaffle Shop (6/6 models)
+
+**Implementation Summary:**
+* **New Crate**: `crates/schemarefly-jinja` - Jinja2 template preprocessing infrastructure using MiniJinja (by Jinja2 creator Armin Ronacher)
+* **Core Components**:
+  - `JinjaPreprocessor`: Main preprocessor with automatic Jinja detection
+  - `DbtContext`: dbt-specific context (vars, target, config)
+  - `DbtFunctions`: Implementation of ref(), source(), var(), config()
+  - `PreprocessResult`: Result with original and rendered SQL
+* **Jinja Features**:
+  - Automatic detection of Jinja templates ({{ }}, {% %}, {# #})
+  - Renders Jinja to pure SQL before parsing
+  - Preserves original SQL for debugging
+  - Passthrough for non-Jinja SQL (zero overhead)
+* **dbt Functions**:
+  - `ref('model')` → model name
+  - `source('src', 'table')` → src.table
+  - `var('name', 'default')` → default value
+  - `config(...)` → empty (metadata only)
+* **Error Handling**:
+  - New diagnostic codes: JINJA_RENDER_ERROR, JINJA_UNDEFINED_VARIABLE
+  - Clear error messages with file paths
+  - Context extraction for debugging
+* **SQL Parser Integration**:
+  - `parse_with_jinja()` method for automatic preprocessing
+  - `parse_file_with_jinja()` for file-based parsing
+  - Optional DbtContext for custom variables
+
+**Files Created:**
+* `crates/schemarefly-jinja/Cargo.toml` - Crate configuration with MiniJinja 2.5
+* `crates/schemarefly-jinja/src/lib.rs` - Module exports
+* `crates/schemarefly-jinja/src/preprocessor.rs` - JinjaPreprocessor with template rendering (260+ lines)
+* `crates/schemarefly-jinja/src/context.rs` - DbtContext for template variables (120+ lines)
+* `crates/schemarefly-jinja/src/functions.rs` - dbt Jinja functions (ref, source, var, config) (120+ lines)
+
+**Files Modified:**
+* `Cargo.toml` - Added schemarefly-jinja member and minijinja 2.5 dependency
+* `crates/schemarefly-core/src/diagnostic.rs` - Added JINJA_RENDER_ERROR, JINJA_UNDEFINED_VARIABLE, JINJA_SYNTAX_ERROR codes
+* `crates/schemarefly-sql/Cargo.toml` - Added schemarefly-jinja dependency
+* `crates/schemarefly-sql/src/parser.rs` - Added parse_with_jinja() and parse_file_with_jinja() methods
+* `crates/schemarefly-compat/src/harness.rs` - Updated to use parse_with_jinja() for automatic Jinja support
+
+**Test Results (Jaffle Shop Classic):**
+```
+Before Jinja Support:
+  Total Models: 6
+  Parsed Successfully: 1 (16.7%)  ← Only pure SQL model
+  Parse Failures: 5 (83.3%)       ← All Jinja templates failed
+
+After Jinja Support:
+  Total Models: 6
+  Parsed Successfully: 6 (100%)   ← All models parse!
+  Schema Inferred: 6 (100%)
+  Parse Failures: 0               ← Zero failures!
+```
+
+**Usage:**
+```rust
+use schemarefly_sql::SqlParser;
+use schemarefly_jinja::DbtContext;
+
+// Simple usage - automatic Jinja detection
+let parser = SqlParser::postgres();
+let sql = "select * from {{ ref('my_model') }}";
+let parsed = parser.parse_with_jinja(sql, None, None)?;
+
+// Custom context with variables
+let context = DbtContext::default();
+context.add_var("my_var", json!("value"));
+let parsed = parser.parse_with_jinja(sql, None, Some(context))?;
+```
+
+**Key Learning**:
+- MiniJinja by Jinja2 creator provides industry-standard Jinja2 compatibility
+- Automatic template detection avoids overhead for non-Jinja SQL
+- dbt functions (ref, source) enable parsing real dbt projects
+- Comprehensive error diagnostics crucial for template debugging
+- Integration with compat suite enables systematic testing on real projects
+
+**Phase 10 Summary:**
+Phase 10 Jinja2 template support is **complete** with production-ready preprocessing infrastructure. SchemaRefly can now parse real dbt projects with Jinja templates, achieving 100% parse success on Jaffle Shop. This is a **critical feature** for industry adoption as all real-world dbt projects use Jinja templates.
 
 ---
 
