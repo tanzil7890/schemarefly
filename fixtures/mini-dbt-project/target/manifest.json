@@ -1,0 +1,145 @@
+{
+  "metadata": {
+    "dbt_schema_version": "https://schemas.getdbt.com/dbt/manifest/v11.json",
+    "dbt_version": "1.7.0",
+    "generated_at": "2024-01-01T00:00:00.000000Z",
+    "invocation_id": "test-invocation",
+    "env": {}
+  },
+  "nodes": {
+    "model.mini_dbt_project.users": {
+      "database": "analytics",
+      "schema": "public",
+      "name": "users",
+      "resource_type": "model",
+      "package_name": "mini_dbt_project",
+      "path": "users.sql",
+      "original_file_path": "models/users.sql",
+      "unique_id": "model.mini_dbt_project.users",
+      "fqn": ["mini_dbt_project", "users"],
+      "alias": "users",
+      "checksum": {"name": "sha256", "checksum": "abc123"},
+      "config": {
+        "enabled": true,
+        "materialized": "table",
+        "contract": {
+          "enforced": true
+        }
+      },
+      "tags": [],
+      "description": "User table",
+      "columns": {
+        "id": {
+          "name": "id",
+          "description": "Primary key",
+          "data_type": "integer"
+        },
+        "name": {
+          "name": "name",
+          "description": "User's full name",
+          "data_type": "varchar"
+        },
+        "email": {
+          "name": "email",
+          "description": "User's email",
+          "data_type": "varchar"
+        },
+        "created_at": {
+          "name": "created_at",
+          "description": "When the user was created",
+          "data_type": "timestamp"
+        }
+      },
+      "depends_on": {
+        "nodes": ["source.mini_dbt_project.raw.users"]
+      },
+      "compiled": true,
+      "compiled_code": "SELECT id, name, email, created_at FROM raw.users WHERE deleted_at IS NULL",
+      "extra_ctes_injected": false,
+      "extra_ctes": [],
+      "relation_name": "analytics.public.users"
+    },
+    "model.mini_dbt_project.active_users": {
+      "database": "analytics",
+      "schema": "public",
+      "name": "active_users",
+      "resource_type": "model",
+      "package_name": "mini_dbt_project",
+      "path": "active_users.sql",
+      "original_file_path": "models/active_users.sql",
+      "unique_id": "model.mini_dbt_project.active_users",
+      "fqn": ["mini_dbt_project", "active_users"],
+      "alias": "active_users",
+      "checksum": {"name": "sha256", "checksum": "def456"},
+      "config": {
+        "enabled": true,
+        "materialized": "table"
+      },
+      "tags": [],
+      "description": "Active users with valid emails",
+      "columns": {},
+      "depends_on": {
+        "nodes": ["model.mini_dbt_project.users"]
+      },
+      "compiled": true,
+      "compiled_code": "SELECT id, name, email, created_at FROM analytics.public.users WHERE email IS NOT NULL",
+      "extra_ctes_injected": false,
+      "extra_ctes": [],
+      "relation_name": "analytics.public.active_users"
+    }
+  },
+  "sources": {
+    "source.mini_dbt_project.raw.users": {
+      "database": "raw_db",
+      "schema": "raw",
+      "name": "users",
+      "resource_type": "source",
+      "package_name": "mini_dbt_project",
+      "path": "models/schema.yml",
+      "original_file_path": "models/schema.yml",
+      "unique_id": "source.mini_dbt_project.raw.users",
+      "fqn": ["mini_dbt_project", "raw", "users"],
+      "source_name": "raw",
+      "source_description": "",
+      "loader": "",
+      "identifier": "users",
+      "quoting": {},
+      "columns": {
+        "id": {
+          "name": "id",
+          "data_type": "integer"
+        },
+        "name": {
+          "name": "name",
+          "data_type": "varchar"
+        },
+        "email": {
+          "name": "email",
+          "data_type": "varchar"
+        },
+        "created_at": {
+          "name": "created_at",
+          "data_type": "timestamp"
+        },
+        "deleted_at": {
+          "name": "deleted_at",
+          "data_type": "timestamp"
+        }
+      }
+    }
+  },
+  "macros": {},
+  "docs": {},
+  "exposures": {},
+  "metrics": {},
+  "selectors": {},
+  "disabled": [],
+  "parent_map": {
+    "model.mini_dbt_project.users": ["source.mini_dbt_project.raw.users"],
+    "model.mini_dbt_project.active_users": ["model.mini_dbt_project.users"]
+  },
+  "child_map": {
+    "source.mini_dbt_project.raw.users": ["model.mini_dbt_project.users"],
+    "model.mini_dbt_project.users": ["model.mini_dbt_project.active_users"]
+  }
+}

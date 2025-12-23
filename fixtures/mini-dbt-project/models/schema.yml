@@ -1,0 +1,37 @@
+version: 2
+
+models:
+  - name: users
+    description: "User table"
+    config:
+      contract:
+        enforced: true
+    columns:
+      - name: id
+        data_type: integer
+        description: "Primary key"
+      - name: name
+        data_type: varchar
+        description: "User's full name"
+      - name: email
+        data_type: varchar
+        description: "User's email"
+      - name: created_at
+        data_type: timestamp
+        description: "When the user was created"
+
+sources:
+  - name: raw
+    tables:
+      - name: users
+        columns:
+          - name: id
+            data_type: integer
+          - name: name
+            data_type: varchar
+          - name: email
+            data_type: varchar
+          - name: created_at
+            data_type: timestamp
+          - name: deleted_at
+            data_type: timestamp
