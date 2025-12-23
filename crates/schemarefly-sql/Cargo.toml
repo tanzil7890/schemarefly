@@ -1,0 +1,13 @@
+[package]
+name = "schemarefly-sql"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+schemarefly-core.workspace = true
+schemarefly-dbt.workspace = true
+sqlparser.workspace = true
+thiserror.workspace = true
+anyhow.workspace = true
