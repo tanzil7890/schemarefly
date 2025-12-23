@@ -74,6 +74,11 @@ pub struct Report {
     /// Timestamp (ISO 8601)
     pub timestamp: String,
 
+    /// Content hash (SHA-256 of diagnostics for deterministic verification)
+    /// This ensures same input produces same output (excluding timestamp)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content_hash: Option<String>,
+
     /// Summary statistics
     pub summary: ReportSummary,
 
@@ -91,10 +96,30 @@ impl Report {
         Self {
             version: ReportVersion::CURRENT,
             timestamp: chrono::Utc::now().to_rfc3339(),
+            content_hash: None,
             summary: ReportSummary::default(),
             diagnostics: Vec::new(),
             metadata: None,
         }
+    }
+
+    /// Compute SHA-256 hash of diagnostics for deterministic verification
+    ///
+    /// Hashes the serialized diagnostics (excluding timestamp and metadata)
+    /// to enable verification that same input produces same output.
+    fn compute_content_hash(diagnostics: &[Diagnostic]) -> String {
+        use sha2::{Sha256, Digest};
+
+        // Serialize diagnostics to JSON (deterministic due to sorted order)
+        let json = serde_json::to_string(diagnostics).unwrap_or_default();
+
+        // Compute SHA-256 hash
+        let mut hasher = Sha256::new();
+        hasher.update(json.as_bytes());
+        let result = hasher.finalize();
+
+        // Return hex-encoded hash
+        hex::encode(result)
     }
 
     /// Create a report from diagnostics
@@ -104,6 +129,9 @@ impl Report {
         // Sort diagnostics for deterministic output
         // Order: Error > Warn > Info, then by code, then by location
         diagnostics.sort();
+
+        // Compute content hash for deterministic verification
+        let content_hash = Self::compute_content_hash(&diagnostics);
 
         let summary = ReportSummary {
             total: diagnostics.len(),
@@ -117,6 +145,7 @@ impl Report {
         Self {
             version: ReportVersion::CURRENT,
             timestamp: chrono::Utc::now().to_rfc3339(),
+            content_hash: Some(content_hash),
             summary,
             diagnostics,
             metadata: None,
@@ -136,6 +165,9 @@ impl Report {
             diagnostics = diagnostics.into_iter().map(|d| d.redact()).collect();
         }
 
+        // Compute content hash for deterministic verification
+        let content_hash = Self::compute_content_hash(&diagnostics);
+
         let summary = ReportSummary {
             total: diagnostics.len(),
             errors: diagnostics.iter().filter(|d| d.severity == Severity::Error).count(),
@@ -148,6 +180,7 @@ impl Report {
         Self {
             version: ReportVersion::CURRENT,
             timestamp: chrono::Utc::now().to_rfc3339(),
+            content_hash: Some(content_hash),
             summary,
             diagnostics,
             metadata: None,
@@ -228,5 +261,46 @@ mod tests {
         let json = report.to_json().unwrap();
         assert!(json.contains("\"version\""));
         assert!(json.contains("\"diagnostics\""));
+    }
+
+    #[test]
+    fn content_hash_is_deterministic() {
+        // Same diagnostics should produce same hash
+        let diagnostics1 = vec![
+            Diagnostic::new(DiagnosticCode::ContractMissingColumn, Severity::Error, "Error 1"),
+            Diagnostic::new(DiagnosticCode::Warning, Severity::Warn, "Warning 1"),
+        ];
+
+        let diagnostics2 = vec![
+            Diagnostic::new(DiagnosticCode::ContractMissingColumn, Severity::Error, "Error 1"),
+            Diagnostic::new(DiagnosticCode::Warning, Severity::Warn, "Warning 1"),
+        ];
+
+        let report1 = Report::from_diagnostics(diagnostics1);
+        let report2 = Report::from_diagnostics(diagnostics2);
+
+        // Hashes should be identical
+        assert_eq!(report1.content_hash, report2.content_hash);
+        assert!(report1.content_hash.is_some());
+
+        // Timestamps will differ, but hashes should match
+        assert_ne!(report1.timestamp, report2.timestamp);
+    }
+
+    #[test]
+    fn content_hash_changes_with_different_diagnostics() {
+        let diagnostics1 = vec![
+            Diagnostic::new(DiagnosticCode::ContractMissingColumn, Severity::Error, "Error 1"),
+        ];
+
+        let diagnostics2 = vec![
+            Diagnostic::new(DiagnosticCode::ContractTypeMismatch, Severity::Error, "Error 2"),
+        ];
+
+        let report1 = Report::from_diagnostics(diagnostics1);
+        let report2 = Report::from_diagnostics(diagnostics2);
+
+        // Different diagnostics should produce different hashes
+        assert_ne!(report1.content_hash, report2.content_hash);
     }
 }
