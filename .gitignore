@@ -1,1 +1,8 @@
 /target
+
+# Generated reports (examples in root and fixtures/ are kept for documentation)
+**/report.json
+**/report.md
+
+# Default Rust template (not used in workspace)
+/src/
