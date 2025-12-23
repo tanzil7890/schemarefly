@@ -1,0 +1,27 @@
+# SchemaRefly Configuration
+# This is an example configuration file
+
+# SQL dialect: bigquery, snowflake, postgres, ansi
+dialect = "ansi"
+
+[severity.overrides]
+# Override severity levels for specific diagnostic codes
+# Format: CODE = "error" | "warn" | "info"
+# Example:
+# CONTRACT_EXTRA_COLUMN = "warn"
+
+[allowlist]
+# Allow type widening for specific models (glob patterns)
+allow_widening = [
+    # "staging.*"
+]
+
+# Allow extra columns for specific models (glob patterns)
+allow_extra_columns = [
+    # "staging.*"
+]
+
+# Skip checks entirely for specific models (glob patterns)
+skip_models = [
+    # "temp_*"
+]
