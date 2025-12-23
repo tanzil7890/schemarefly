@@ -1,0 +1,562 @@
+## **Architecture foundation plan (Rust workspace)**
+
+### **Why this Rust stack works**
+
+* **Incremental engine:** Salsa gives you a query-based, memoized, incremental computation model (exactly what you want for “edit one file → recompute only what changed”). [GitHub](https://github.com/salsa-rs/salsa?utm_source=chatgpt.com)
+
+* **SQL parsing:** datafusion-sqlparser-rs is an extensible SQL lexer/parser with dialect support; it’s explicitly syntax-focused (you add semantics/inference in your own layer). [GitHub](https://github.com/apache/datafusion-sqlparser-rs?utm_source=chatgpt.com)
+
+* **IDE support:** tower-lsp is a Rust LSP implementation designed to build language servers; it sits on top of the official LSP specification. [GitHub+1](https://github.com/ebkalderon/tower-lsp?utm_source=chatgpt.com)
+
+### **Repo layout (Cargo workspace)**
+
+Create a workspace with clear boundaries:
+
+1. **schemarefly-core**
+
+* Canonical schema types, type system, diffs, diagnostic codes
+
+* No IO, no dbt knowledge (pure logic)
+
+2. **schemarefly-dbt**
+
+* Reads dbt artifacts (manifest.json, optionally catalog.json) and model YAML configs for contracts [dbt Developer Hub+1](https://docs.getdbt.com/reference/artifacts/dbt-artifacts?utm_source=chatgpt.com)
+
+* Builds DAG \+ reverse DAG
+
+* Extracts “contract enforced” specs (columns, types)
+
+3. **schemarefly-sql**
+
+* Wraps datafusion-sqlparser-rs AST and spans [GitHub](https://github.com/apache/datafusion-sqlparser-rs?utm_source=chatgpt.com)
+
+* Implements SQL schema inference \+ limited expression typing (MVP subset)
+
+4. **schemarefly-catalog**
+
+* Warehouse metadata adapters (read-only)
+
+* Start with **BigQuery INFORMATION\_SCHEMA.COLUMNS** and **Snowflake INFORMATION\_SCHEMA** because they’re well-documented and stable: BigQuery has INFORMATION\_SCHEMA.COLUMNS with one row per column; Snowflake provides INFORMATION\_SCHEMA views for metadata. [Google Cloud Documentation+1](https://docs.cloud.google.com/bigquery/docs/information-schema-columns?utm_source=chatgpt.com)
+
+5. **schemarefly-engine**
+
+* Salsa database \+ queries (parse → infer → diff → impact) [GitHub](https://github.com/salsa-rs/salsa?utm_source=chatgpt.com)
+
+* Incremental caching keyed by file contents \+ artifact versions
+
+6. **schemarefly-cli**
+
+* Single binary entrypoint (subcommands: check, drift, impact, init-contracts)
+
+7. **schemarefly-lsp**
+
+* LSP server using tower-lsp (diagnostics, hover, go-to-definition) [GitHub+1](https://github.com/ebkalderon/tower-lsp?utm_source=chatgpt.com)
+
+---
+
+## **Core domain model (lock this early)**
+
+### **Canonical types**
+
+* **LogicalType** (portable): Bool, Int, Float, Decimal(p,s), String, Date, Timestamp, Json/Variant, Struct, Array, Unknown
+
+* **Column**: { name, logical\_type, nullable: Unknown/Yes/No, provenance: Vec\<ColumnRef\> }
+
+* **Schema**: ordered columns \+ optional constraints
+
+* **Contract**: schema \+ enforcement policy (allow extra cols? allow widening? etc.)
+
+* **Diagnostic**: stable codes and structured payload:
+
+  * code: CONTRACT\_MISSING\_COLUMN, CONTRACT\_TYPE\_MISMATCH, DRIFT\_TYPE\_CHANGE, …
+
+  * severity: info|warn|error
+
+  * location: file \+ range (best-effort; SQL parser spans are “work in progress” but supported) [GitHub](https://github.com/apache/datafusion-sqlparser-rs?utm_source=chatgpt.com)
+
+  * expected vs actual
+
+  * impact: downstream nodes list
+
+### **Policy rules (V1 defaults)**
+
+Use dbt’s contract semantics as your baseline: contract expects exact matching of defined columns and types. [dbt Developer Hub](https://docs.getdbt.com/reference/resource-configs/contract?utm_source=chatgpt.com)  
+ Add your own explicit “breaking rules” layer for org policy:
+
+* missing contracted column → **error**
+
+* type mismatch vs contract → **error**
+
+* extra columns → warn by default (configurable)
+
+* select \* → warn (unless you can expand via catalog)
+
+---
+
+## **Salsa query plan (incrementality is your moat)**
+
+Model the whole system as Salsa queries. [GitHub](https://github.com/salsa-rs/salsa?utm_source=chatgpt.com)  
+ **Inputs**
+
+* FileText(path) \-\> String (SQL \+ YAML)
+
+* DbtManifestJson \-\> String
+
+* DbtCatalogJson? \-\> String (optional)
+
+* WarehouseSchema(table\_id) \-\> Schema (optional drift mode)
+
+**Derived queries**
+
+* ParseDbtManifest \-\> DbtGraph
+
+* ContractsForNode(node) \-\> Contract?
+
+* ParseSqlModel(node) \-\> SqlAst
+
+* InferSqlSchema(node) \-\> Schema
+
+* DiffContract(node) \-\> Vec\<Diagnostic\>
+
+* DownstreamImpact(node) \-\> Vec\<NodeId\>
+
+* Check(changed\_nodes) \-\> Report
+
+This gives you:
+
+* “edit one SQL file” → recompute parse \+ inference for that node \+ dependents only
+
+* “edit one YAML contract” → recompute diffs only
+
+---
+
+# **Phase-by-phase roadmap (Rust-first)**
+
+## **Phase 0 — Standards \+ interfaces (Week 0–1)** ✅ **COMPLETED**
+
+**Deliverables** ✅
+
+* ✅ Diagnostic code registry (versioned, never rename codes)
+  * Implemented in `crates/schemarefly-core/src/diagnostic.rs`
+  * Stable enum with 13 diagnostic codes across 4 categories
+  * Includes `as_str()` method for stable string identifiers
+
+* ✅ Report schema (report.json) v1 with stable fields
+  * Implemented in `crates/schemarefly-core/src/report.rs`
+  * Versioned schema (v1.0) with summary statistics
+  * JSON serialization with pretty printing
+  * File I/O support
+
+* ✅ Config schema (schemarefly.toml) for:
+  * Implemented in `crates/schemarefly-core/src/config.rs`
+  * ✅ dialect defaults (BigQuery, Snowflake, Postgres, ANSI)
+  * ✅ severity thresholds (code-specific overrides)
+  * ✅ allowlist rules (widening, extra cols, skip patterns)
+  * TOML parsing with proper error handling
+
+* ✅ Golden test fixtures (mini dbt projects)
+  * Created in `fixtures/mini-dbt-project/`
+  * Includes manifest.json, models, and schema.yml
+  * Complete working dbt project structure
+
+**Acceptance** ✅
+
+* ✅ You can run a "no-op" check and get a valid empty report.
+  * Command: `schemarefly check` produces valid report.json
+  * CLI supports `--verbose`, `--markdown`, and `--config` flags
+  * All tests pass (13 core tests + CLI tests)
+
+**Implementation Details**
+
+* Workspace structure: 7 crates (core, dbt, sql, catalog, engine, cli, lsp)
+* Core types: LogicalType, Column, Schema, Contract, Diagnostic
+* CLI commands: check, impact, drift, init-contracts (check is functional, others are stubs for future phases)
+
+---
+
+## **Phase 1 — dbt ingestion \+ DAG \+ contracts (Week 1\)** ✅ **COMPLETED**
+
+dbt contracts are defined via contract.enforced and column name \+ data\_type in YAML; dbt enforces output matches those attributes and notes subtle type changes can break downstream queries. [dbt Developer Hub](https://docs.getdbt.com/reference/resource-configs/contract?utm_source=chatgpt.com)
+ dbt artifacts (including manifest.json and catalog.json) are produced by dbt commands and are meant to power docs/state and more. [dbt Developer Hub](https://docs.getdbt.com/reference/artifacts/dbt-artifacts?utm_source=chatgpt.com)
+
+**Build** ✅
+
+* ✅ Parse manifest.json to:
+  * Implemented in `crates/schemarefly-dbt/src/manifest.rs`
+  * ✅ enumerate models (with resource_type filtering)
+  * ✅ get file paths (original_file_path, path)
+  * ✅ build dependency graph + reverse graph
+    * Implemented in `crates/schemarefly-dbt/src/dag.rs`
+    * Forward edges (parents): node → dependencies
+    * Reverse edges (children): node → dependents
+    * Transitive closure: `downstream()` and `upstream()` methods
+    * Topological sort support
+
+* ✅ Parse model YAMLs:
+  * Implemented in `crates/schemarefly-dbt/src/contract.rs`
+  * ✅ extract contract.enforced
+  * ✅ extract columns + declared data_type
+  * Maps dbt types to LogicalType (int, varchar, timestamp, decimal, etc.)
+  * Supports 20+ common data types with precision/scale parsing
+
+**CLI** ✅
+
+* ✅ schemarefly impact \<model\>: prints downstream list
+  * Fully functional with colored output
+  * Supports short names (e.g., "users") and unique_ids
+  * Shows full transitive closure of downstream dependencies
+  * Displays resource types and counts
+  * Configurable manifest path (`-f` flag)
+
+**Acceptance** ✅
+
+* ✅ Correct downstream blast radius for a known dbt project.
+  * Tested with `fixtures/mini-dbt-project`
+  * Source → users → active_users dependency chain working
+  * Impact analysis shows all 2 downstream models from source
+  * All 5 dbt crate tests passing
+
+**Implementation Details**
+
+* `schemarefly-dbt` crate with 3 modules:
+  * `manifest`: Parses manifest.json with full type definitions
+  * `dag`: Builds and traverses dependency graphs (DAG)
+  * `contract`: Extracts contracts from manifest columns
+* BFS algorithm for transitive dependency discovery
+* Kahn's algorithm for topological sorting
+* Support for both parent_map/child_map and depends_on structures
+
+---
+
+## **Phase 2 — SQL parsing layer (Week 2\)** ✅ **COMPLETED**
+
+Use datafusion-sqlparser-rs to parse SQL into AST and (where available) spans. [GitHub](https://github.com/apache/datafusion-sqlparser-rs?utm_source=chatgpt.com)
+
+**Build** ✅
+
+* ✅ ParseSqlModel(node) \-\> Ast
+  * Implemented in `crates/schemarefly-sql/src/parser.rs`
+  * Supports multiple SQL dialects (BigQuery, Snowflake, Postgres, ANSI)
+  * Graceful error handling with diagnostic conversion
+  * File and string parsing support
+
+* ✅ Minimal resolver for:
+  * Implemented in `crates/schemarefly-sql/src/resolver.rs`
+  * ✅ CTE names (with duplicate detection)
+  * ✅ select aliases (column and table aliases)
+  * ✅ ref() / source() (resolved via manifest)
+    * Implemented in `crates/schemarefly-sql/src/dbt_functions.rs`
+    * Extracts dbt template functions from SQL
+    * Resolves to unique_ids using manifest
+    * Preprocesses SQL for standard parsing
+
+**Acceptance** ✅
+
+* ✅ Parse 90% of your target SQL style without crashing.
+  * 15 unit tests + 3 integration tests passing
+  * Handles CTEs, subqueries, joins, aliases
+  * Supports dbt-specific syntax via preprocessing
+  * Tested with fixture models
+
+* ✅ Report "unsupported syntax" diagnostics rather than failing hard.
+  * `ParseError` converts to `Diagnostic` with proper error codes
+  * Uses `SqlParseError` diagnostic code
+  * Includes file path and error message
+  * Integration with SchemaRefly diagnostic system
+
+**Implementation Details**
+
+* `schemarefly-sql` crate with 3 modules:
+  * `parser`: SQL parsing using sqlparser-rs with dialect support
+  * `resolver`: Name resolution for CTEs, aliases, and tables
+  * `dbt_functions`: dbt template function extraction and preprocessing
+* Dialect support: BigQuery, Snowflake, Postgres, ANSI
+* dbt template preprocessing: Converts `{{ ref() }}` and `{{ source() }}` to table names
+* Name resolution: Tracks CTEs, table aliases, and column aliases
+* Error handling: Graceful failures with diagnostic reporting
+* Integration tests: End-to-end parsing workflow tested
+
+---
+
+## **Phase 3 — SQL schema inference MVP (Week 3–4)** ✅ **COMPLETED**
+
+This is where you become "better than dbt contracts" because you can reason about changes *before* running builds.
+
+**Inference subset (MVP)** ✅
+
+* ✅ SELECT col, SELECT col AS alias
+  * Implemented in `crates/schemarefly-sql/src/inference.rs`
+  * Full type inference from source schemas
+  * Column aliasing support
+
+* ✅ CAST(col AS type) and simple literal typing
+  * Handles all SQL data types (INT, VARCHAR, DECIMAL, etc.)
+  * Proper conversion from sqlparser DataType to LogicalType
+  * Support for DECIMAL precision/scale extraction
+  * Literal value type inference (numbers, strings, booleans)
+
+* ✅ JOIN schema merge (with collision strategy)
+  * Merges schemas from LEFT/RIGHT/INNER/OUTER JOINs
+  * Column name collision detection and handling
+  * Supports subqueries and derived tables
+
+* ✅ WHERE (no schema change)
+  * WHERE clauses correctly analyzed without affecting schema
+
+* ✅ GROUP BY + AGG where output columns are explicitly aliased (otherwise warn)
+  * Validates GROUP BY columns are either in group keys or aggregates
+  * Errors on unaliased aggregate functions with `SqlGroupByAggregateUnaliased` diagnostic
+  * Supports all common aggregate functions (COUNT, SUM, AVG, MIN, MAX, etc.)
+  * Multiple GROUP BY columns supported
+
+**Star expansion** ✅
+
+* ✅ If SELECT * encountered:
+  * ✅ If catalog.json exists, expand
+    * Implemented with `InferenceContext::with_catalog(true)`
+    * Full SELECT * expansion from source schemas
+  * ✅ Else warn that you cannot guarantee schema
+    * Returns `SelectStarWithoutCatalog` error
+    * Produces `SqlSelectStarUnexpandable` diagnostic
+
+**Acceptance** ✅
+
+* ✅ You can infer stable output schemas for most "analytics engineering" SQL models.
+  * 25 unit tests + 6 integration tests passing
+  * Tested with fixture models (users.sql, active_users.sql)
+  * Supports complex queries with CTEs, JOINs, aggregations
+  * GROUP BY validation with proper error messages
+  * Full type inference including DECIMAL precision/scale
+  * Integration with manifest for table schema resolution
+
+**Implementation Details**
+
+* `schemarefly-sql/src/inference.rs` module with:
+  * `SchemaInference`: Main inference engine
+  * `InferenceContext`: Manages available table schemas
+  * Type conversion from sqlparser DataType to LogicalType
+  * Expression type inference (identifiers, functions, operators, literals)
+  * Function return type inference for aggregates and built-in functions
+  * Binary operator type inference
+  * GROUP BY validation and aggregate detection
+* New diagnostic code: `SqlGroupByAggregateUnaliased`
+* InferenceError types for precise error reporting
+* Comprehensive test coverage:
+  * Simple SELECT tests
+  * Aliasing tests
+  * CAST tests
+  * SELECT * with/without catalog
+  * GROUP BY with aggregates
+  * JOIN schema merging
+  * Complex aggregations
+  * Fixture model inference
+
+---
+
+## **Phase 4 — Contract diff engine \+ CI gate (Week 5\)** ✅ **COMPLETED**
+
+dbt contract enforcement cares about declared name \+ data\_type matching model output. [dbt Developer Hub](https://docs.getdbt.com/reference/resource-configs/contract?utm_source=chatgpt.com)
+ You implement: "same promise, but faster feedback \+ better explanations \+ blast radius".
+
+**Build** ✅
+
+* ✅ For every contract-enforced model:
+  * Implemented in `crates/schemarefly-engine/src/contract_diff.rs`
+  * ✅ infer schema (via SQL parsing and schema inference)
+  * ✅ compare to contract (type compatibility with lenient numeric coercion)
+  * ✅ produce diagnostics:
+    * ✅ missing column (`CONTRACT_MISSING_COLUMN` diagnostic)
+    * ✅ type mismatch (`CONTRACT_TYPE_MISMATCH` diagnostic)
+    * ✅ extra column (`CONTRACT_EXTRA_COLUMN` diagnostic - warning level)
+  * Full implementation in `ContractDiff::compare()` method
+  * Type compatibility rules: numeric types compatible, decimals compatible, Unknown matches anything
+
+* ✅ Attach downstream impact list via reverse DAG traversal
+  * Integrated in `check_command` in `crates/schemarefly-cli/src/main.rs`
+  * Uses `DependencyGraph::downstream()` for transitive impact analysis
+  * Each diagnostic includes `impact` field with list of affected downstream models
+
+**CLI** ✅
+
+* ✅ schemarefly check:
+  * Fully functional implementation in `crates/schemarefly-cli/src/main.rs`
+  * ✅ exit 1 if any error (proper error code handling)
+  * ✅ emits report.json \+ report.md (both formats supported)
+  * Supports `--verbose` flag for detailed output
+  * Supports `--output` and `--markdown` flags for custom paths
+  * Integrates all components: manifest, DAG, SQL parser, inference, contract diff
+
+**Acceptance** ✅
+
+* ✅ Removing a contracted column fails with:
+  * Tested with fixture models
+  * ✅ the model \+ line range (file path: `models/users.sql`)
+  * ✅ expected vs actual (diagnostic message: "Column 'email' required by contract but missing from inferred schema")
+  * ✅ downstream impacted models list (shows: `model.mini_dbt_project.active_users`)
+  * Exit code 1 on errors
+  * Full JSON and Markdown reports generated
+
+**Implementation Details**
+
+* `schemarefly-engine/src/contract_diff.rs` module with:
+  * `ContractDiff`: Result of comparing inferred schema against contract
+  * `compare()`: Core comparison logic with diagnostic generation
+  * `types_compatible()`: Type compatibility checking with lenient rules
+  * Support for numeric coercion (int ↔ float, decimal variants)
+  * Unknown type as wildcard for unresolved types
+  * 5 comprehensive unit tests covering all scenarios
+* Updated `InferenceContext::from_manifest()` to include sources:
+  * Sources added to catalog with multiple name variants (FQN, source.table, unique_id)
+  * Models added with multiple name variants for robust resolution
+  * Full support for dbt source() function resolution
+* `check_command` implementation:
+  * Loads manifest and builds DAG
+  * Creates inference context from manifest (models + sources)
+  * Processes all contract-enforced models
+  * Preprocesses dbt template functions
+  * Parses SQL and infers schemas
+  * Compares against contracts
+  * Adds downstream impact to each diagnostic
+  * Generates both JSON and Markdown reports
+  * Returns proper exit codes
+* All 57 workspace tests passing
+* End-to-end testing with fixture models:
+  * ✅ Valid schema passes check with exit code 0
+  * ✅ Missing column detected with proper diagnostic and exit code 1
+  * ✅ Type mismatch detected with proper diagnostic and exit code 1
+  * ✅ Downstream impact correctly identified
+
+---
+
+## **Phase 5 — Warehouse drift mode (Week 6–7)**
+
+Goal: detect schema changes in sources/tables even if SQL still compiles.
+
+### **BigQuery adapter (start here)**
+
+BigQuery provides INFORMATION\_SCHEMA.COLUMNS with one row per column, and documents required IAM permissions and schema fields. [Google Cloud Documentation](https://docs.cloud.google.com/bigquery/docs/information-schema-columns?utm_source=chatgpt.com)
+
+### **Snowflake adapter (second)**
+
+Snowflake documents INFORMATION\_SCHEMA as a metadata dictionary and provides views to query it. [Snowflake Documentation](https://docs.snowflake.com/en/en/sql-reference/info-schema?utm_source=chatgpt.com)
+
+**Build**
+
+* schemarefly drift:
+
+  * fetch current table schemas (metadata-only)
+
+  * compare to contract expectations
+
+  * classify drift:
+
+    * dropped column
+
+    * type change
+
+    * new column
+
+* Optional gating policy: “fail PR if drift is breaking”
+
+**Acceptance**
+
+* Drift report reliably flags upstream table schema changes with clear diffs.
+
+---
+
+## **Phase 6 — Incremental performance hardening (Week 8–9)**
+
+This is where Rust \+ Salsa become the product.
+
+**Build**
+
+* Make Salsa inputs granular:
+
+  * FileText(path) is an input
+
+  * ManifestJson is an input
+
+  * CatalogJson is an input
+
+* Ensure derived queries only depend on what they need
+
+* Add caching for warehouse metadata fetches (TTL \+ key by table id)
+
+**Acceptance**
+
+* Editing one model triggers recompute only for:
+
+  * that model \+ dependents
+
+* Large DAGs remain fast (you can publish benchmarks in the repo).
+
+---
+
+## **Phase 7 — LSP (Week 10–12)**
+
+Use tower-lsp to implement LSP server behaviors, aligned with the LSP spec. [GitHub+1](https://github.com/ebkalderon/tower-lsp?utm_source=chatgpt.com)
+
+**MVP LSP features**
+
+* diagnostics on save (or on change if fast enough)
+
+* hover: inferred schema of the model
+
+* go-to-definition:
+
+  * contract column → YAML definition
+
+  * model ref → file
+
+**Acceptance**
+
+* VS Code can show contract/schema errors inline without running dbt.
+
+---
+
+## **Phase 8 — “Industry standard” hardening (ongoing)**
+
+If you want people to trust this in real orgs, bake these in:
+
+1. **Stable compatibility promises**
+
+* Versioned report schema
+
+* Versioned diagnostics codes
+
+* Semantic versioning for the binary
+
+2. **Deterministic output**
+
+* same input → same report ordering and hashes
+
+3. **Security posture**
+
+* Warehouse access is read-only metadata
+
+* No row-level reads
+
+* Redact schema names/columns in logs if configured
+
+4. **Extensibility**
+
+* Dialect plugin interface (even if internal at first)
+
+* Warehouse adapter interface (BigQuery/Snowflake first)
+
+---
+
+# **Concrete “V1 done” definition (what you ship)**
+
+A single Rust binary that can:
+
+1. Load dbt artifacts \+ contracts [dbt Developer Hub+1](https://docs.getdbt.com/reference/artifacts/dbt-artifacts?utm_source=chatgpt.com)
+
+2. Parse \+ infer SQL schemas using datafusion-sqlparser-rs [GitHub](https://github.com/apache/datafusion-sqlparser-rs?utm_source=chatgpt.com)
+
+3. Compare to enforced contracts and fail CI on breaking changes [dbt Developer Hub](https://docs.getdbt.com/reference/resource-configs/contract?utm_source=chatgpt.com)
+
+4. Produce a PR-friendly markdown \+ JSON report
+
+5. Optionally detect warehouse drift via INFORMATION\_SCHEMA (BigQuery/Snowflake) [Google Cloud Documentation+1](https://docs.cloud.google.com/bigquery/docs/information-schema-columns?utm_source=chatgpt.com)
+
