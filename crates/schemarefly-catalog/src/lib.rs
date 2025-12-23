@@ -1,14 +1,12 @@
-pub fn add(left: u64, right: u64) -> u64 {
-    left + right
-}
+//! Warehouse catalog adapters for schema drift detection
+//!
+//! This module provides adapters to fetch table schemas from various data warehouses
+//! using their INFORMATION_SCHEMA views.
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+pub mod adapter;
+pub mod bigquery;
+pub mod snowflake;
 
-    #[test]
-    fn it_works() {
-        let result = add(2, 2);
-        assert_eq!(result, 4);
-    }
-}
+pub use adapter::{WarehouseAdapter, TableIdentifier, FetchError};
+pub use bigquery::BigQueryAdapter;
+pub use snowflake::SnowflakeAdapter;
