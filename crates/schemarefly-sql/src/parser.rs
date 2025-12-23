@@ -95,6 +95,50 @@ impl SqlParser {
         self.parse(sql, file_path)
             .map_err(|e| e.to_diagnostic())
     }
+
+    /// Parse SQL with Jinja template preprocessing
+    ///
+    /// This method automatically detects and renders Jinja templates before parsing.
+    /// If no Jinja is detected, it behaves identically to `parse()`.
+    pub fn parse_with_jinja(
+        &self,
+        sql: &str,
+        file_path: Option<&Path>,
+        jinja_context: Option<schemarefly_jinja::DbtContext>,
+    ) -> Result<ParsedSql, Diagnostic> {
+        // Create preprocessor with provided context or defaults
+        let preprocessor = match jinja_context {
+            Some(ctx) => schemarefly_jinja::JinjaPreprocessor::new(ctx),
+            None => schemarefly_jinja::JinjaPreprocessor::with_defaults(),
+        };
+
+        // Preprocess the SQL (renders Jinja templates)
+        let preprocess_result = preprocessor
+            .preprocess(sql, file_path)
+            .map_err(|e| e.to_diagnostic())?;
+
+        // Parse the rendered SQL
+        self.parse(&preprocess_result.rendered_sql, file_path)
+            .map_err(|e| e.to_diagnostic())
+    }
+
+    /// Parse SQL file with Jinja template preprocessing
+    pub fn parse_file_with_jinja(
+        &self,
+        path: &Path,
+        jinja_context: Option<schemarefly_jinja::DbtContext>,
+    ) -> Result<ParsedSql, Diagnostic> {
+        let sql = std::fs::read_to_string(path)
+            .map_err(|e| {
+                Diagnostic::new(
+                    DiagnosticCode::InternalError,
+                    Severity::Error,
+                    format!("Failed to read file: {}", e),
+                )
+            })?;
+
+        self.parse_with_jinja(&sql, Some(path), jinja_context)
+    }
 }
 
 impl Default for SqlParser {

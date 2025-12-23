@@ -8,6 +8,7 @@ license.workspace = true
 [dependencies]
 schemarefly-core.workspace = true
 schemarefly-dbt.workspace = true
+schemarefly-jinja.workspace = true
 sqlparser.workspace = true
 thiserror.workspace = true
 anyhow.workspace = true
