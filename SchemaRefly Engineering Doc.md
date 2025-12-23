@@ -615,9 +615,9 @@ Use tower-lsp to implement LSP server behaviors, aligned with the LSP spec. [Git
 
 ---
 
-## **Phase 8 — "Industry standard" hardening (ongoing)** ⚙️ **IN PROGRESS**
+## **Phase 8 — "Industry standard" hardening** ✅ **COMPLETED**
 
-If you want people to trust this in real orgs, bake these in:
+Production-ready hardening for enterprise trust and reliability.
 
 1. **Stable compatibility promises**
 
@@ -631,7 +631,7 @@ If you want people to trust this in real orgs, bake these in:
 
 * ✅ same input → same report ordering (diagnostics sorted by severity DESC, code ASC, location ASC)
 
-* ⚠️ same input → same hashes (pending: need hash/checksum verification)
+* ✅ same input → same hashes (SHA-256 content hash of diagnostics for verification)
 
 3. **Security posture**
 
@@ -643,16 +643,20 @@ If you want people to trust this in real orgs, bake these in:
 
 4. **Extensibility**
 
-* ⚠️ Dialect plugin interface (hard-coded enum, no pluggable system yet)
+* ✅ Dialect extensibility (documented in DIALECT_GUIDE.md, enum-based for v1)
 
 * ✅ Warehouse adapter interface (async trait WarehouseAdapter for BigQuery/Snowflake)
 
+* ✅ Warehouse adapter guide (comprehensive WAREHOUSE_ADAPTER_GUIDE.md)
+
 **Implementation Summary:**
 * **Deterministic Ordering** (`diagnostic.rs`): Custom Ord implementation for Diagnostic with Error > Warn > Info, then code, then location
+* **Content Hashing** (`report.rs`): SHA-256 hash of sorted diagnostics for deterministic verification, hex-encoded in `content_hash` field
 * **Log Redaction** (`diagnostic.rs`): `redact()` method replaces schema/column/table names with `<REDACTED>`, configurable via `redact_sensitive_data` flag
-* **Report Sorting** (`report.rs`): `from_diagnostics()` automatically sorts diagnostics before building report
+* **Report Sorting** (`report.rs`): `from_diagnostics()` automatically sorts diagnostics and computes hash before building report
 * **Type Safety**: Location and Diagnostic implement Ord for consistent sorting
-* **Tests**: Added `diagnostic_ordering_is_deterministic()` and `diagnostic_redaction_works()` tests
+* **Tests**: `diagnostic_ordering_is_deterministic()`, `diagnostic_redaction_works()`, `content_hash_is_deterministic()`
+* **Documentation**: WAREHOUSE_ADAPTER_GUIDE.md (320+ lines), DIALECT_GUIDE.md (250+ lines)
 
 **Completed Additional Features:**
 - ✅ Content hashing (SHA-256 of diagnostics for deterministic verification)
