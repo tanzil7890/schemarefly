@@ -5,8 +5,9 @@ use std::path::{Path, PathBuf};
 
 use schemarefly_core::{Report, Config, Diagnostic};
 use schemarefly_dbt::{Manifest, DependencyGraph, ContractExtractor};
-use schemarefly_engine::ContractDiff;
+use schemarefly_engine::{ContractDiff, DriftDetection};
 use schemarefly_sql::{SqlParser, DbtFunctionExtractor, SchemaInference, InferenceContext};
+use schemarefly_catalog::{WarehouseAdapter, TableIdentifier, BigQueryAdapter, SnowflakeAdapter};
 
 /// SchemaRefly - Schema contract verification for dbt
 #[derive(Parser)]
@@ -62,7 +63,8 @@ enum Commands {
     },
 }
 
-fn main() -> Result<()> {
+#[tokio::main]
+async fn main() -> Result<()> {
     let cli = Cli::parse();
 
     // Load config if specified
@@ -89,7 +91,7 @@ fn main() -> Result<()> {
             impact_command(&config, &model, &manifest, cli.verbose)
         }
         Commands::Drift { output } => {
-            drift_command(&config, &output, cli.verbose)
+            drift_command(&config, &output, cli.verbose).await
         }
         Commands::InitContracts { models } => {
             init_contracts_command(&config, &models, cli.verbose)
@@ -396,15 +398,266 @@ fn find_node_id(manifest: &Manifest, name: &str) -> Result<String> {
 }
 
 /// Drift command - detect warehouse schema changes
-fn drift_command(_config: &Config, output: &PathBuf, verbose: bool) -> Result<()> {
+async fn drift_command(config: &Config, output: &PathBuf, verbose: bool) -> Result<()> {
     if verbose {
         eprintln!("{}", "Detecting schema drift...".cyan());
     }
 
-    println!("{}", "Drift detection not yet implemented (Phase 5)".yellow());
-    println!("Output: {}", output.display());
+    // Check warehouse configuration
+    let warehouse_config = config.warehouse.as_ref()
+        .ok_or_else(|| anyhow::anyhow!(
+            "No warehouse configuration found in schemarefly.toml. \
+             Add a [warehouse] section with type and connection settings."
+        ))?;
+
+    // Find manifest path
+    let manifest_path = Path::new("target/manifest.json");
+    if !manifest_path.exists() {
+        return Err(anyhow::anyhow!(
+            "Manifest not found at {}. Run 'dbt compile' or 'dbt build' first.",
+            manifest_path.display()
+        ));
+    }
+
+    if verbose {
+        eprintln!("{} {}", "Loading manifest from:".cyan(), manifest_path.display());
+    }
+
+    // Load manifest
+    let manifest = Manifest::from_file(manifest_path)?;
+
+    // Create warehouse adapter based on config
+    if verbose {
+        eprintln!("{} {}...", "Connecting to".cyan(), warehouse_config.warehouse_type);
+    }
+
+    let adapter: Box<dyn WarehouseAdapter> = match warehouse_config.warehouse_type.to_lowercase().as_str() {
+        "bigquery" => {
+            let project_id = warehouse_config.settings.get("project_id")
+                .ok_or_else(|| anyhow::anyhow!("BigQuery requires 'project_id' in warehouse settings"))?;
+
+            if let Some(credentials) = warehouse_config.settings.get("credentials") {
+                Box::new(BigQueryAdapter::new(project_id, credentials))
+            } else {
+                Box::new(BigQueryAdapter::with_adc(project_id))
+            }
+        }
+        "snowflake" => {
+            let account = warehouse_config.settings.get("account")
+                .ok_or_else(|| anyhow::anyhow!("Snowflake requires 'account' in warehouse settings"))?;
+            let username = warehouse_config.settings.get("username")
+                .ok_or_else(|| anyhow::anyhow!("Snowflake requires 'username' in warehouse settings"))?;
+            let password = warehouse_config.settings.get("password")
+                .ok_or_else(|| anyhow::anyhow!("Snowflake requires 'password' in warehouse settings"))?;
+
+            let mut adapter = SnowflakeAdapter::new(account, username, password);
+
+            if let Some(warehouse) = warehouse_config.settings.get("warehouse") {
+                adapter = adapter.with_warehouse(warehouse);
+            }
+            if let Some(role) = warehouse_config.settings.get("role") {
+                adapter = adapter.with_role(role);
+            }
+
+            Box::new(adapter)
+        }
+        _ => {
+            return Err(anyhow::anyhow!(
+                "Unsupported warehouse type '{}'. Supported: bigquery, snowflake",
+                warehouse_config.warehouse_type
+            ));
+        }
+    };
+
+    // Test connection
+    if verbose {
+        eprintln!("{}", "Testing warehouse connection...".cyan());
+    }
+
+    adapter.test_connection().await
+        .map_err(|e| anyhow::anyhow!("Failed to connect to warehouse: {}", e))?;
+
+    if verbose {
+        eprintln!("{}", "✓ Connection successful".green());
+        eprintln!("{}", "Checking models with contracts...".cyan());
+    }
+
+    // Collect drift detections for all models with contracts
+    let mut all_drift_detections = Vec::new();
+    let mut checked_models = 0;
+    let mut models_with_drift = 0;
+
+    // Check each model with a contract
+    for (node_id, node) in manifest.models() {
+        if let Some(contract) = ContractExtractor::extract_from_node(node) {
+            if verbose {
+                eprintln!("  {} {}...", "Checking".cyan(), node.name);
+            }
+
+            // Parse table identifier from node
+            // Format: database.schema.table
+            let table_id = parse_table_identifier(&node_id, &node.database, &node.schema, &node.name)?;
+
+            // Fetch actual schema from warehouse
+            let actual_schema = match adapter.fetch_schema(&table_id).await {
+                Ok(schema) => schema,
+                Err(e) => {
+                    if verbose {
+                        eprintln!("    {} {}", "⚠ Warning:".yellow(), e);
+                    }
+                    // Skip this model if we can't fetch its schema
+                    continue;
+                }
+            };
+
+            // Compare expected (contract) vs actual (warehouse)
+            let drift = DriftDetection::detect(
+                node_id,
+                &contract.schema,
+                &actual_schema,
+                Some(node.original_file_path.clone()),
+            );
+
+            let has_errors = drift.has_errors();
+            let has_warnings = drift.has_warnings();
+            let has_info = drift.has_info();
+
+            if has_errors || has_warnings || has_info {
+                models_with_drift += 1;
+            }
+
+            checked_models += 1;
+
+            if verbose {
+                if has_errors {
+                    eprintln!("    {} {} drift errors", "✗".red(), drift.error_count());
+                } else if has_warnings {
+                    eprintln!("    {} {} drift warnings", "⚠".yellow(), drift.warning_count());
+                } else if has_info {
+                    eprintln!("    {} {} informational drifts", "ℹ".cyan(), drift.info_count());
+                } else {
+                    eprintln!("    {}", "✓ No drift".green());
+                }
+            }
+
+            all_drift_detections.push(drift);
+        }
+    }
+
+    if verbose {
+        eprintln!();
+        eprintln!(
+            "Checked {} models, {} with drift detected",
+            checked_models, models_with_drift
+        );
+    }
+
+    // Collect all diagnostics from drift detections
+    let all_diagnostics: Vec<Diagnostic> = all_drift_detections
+        .iter()
+        .flat_map(|d| d.diagnostics.clone())
+        .collect();
+
+    // Build drift report
+    let report = Report::from_diagnostics(all_diagnostics);
+
+    // Save JSON report
+    report.save_to_file(output)?;
+
+    if verbose {
+        eprintln!("{} {}", "Drift report saved to:".green(), output.display());
+    }
+
+    // Print summary
+    print_drift_summary(&report, checked_models, models_with_drift);
+
+    // Exit with error code if there are errors
+    if report.has_errors() {
+        std::process::exit(1);
+    }
 
     Ok(())
+}
+
+/// Parse table identifier from dbt node information
+fn parse_table_identifier(
+    _node_id: &str,
+    database: &Option<String>,
+    schema: &Option<String>,
+    table: &str,
+) -> Result<TableIdentifier> {
+    let db = database.as_ref()
+        .ok_or_else(|| anyhow::anyhow!("Model missing database information"))?
+        .clone();
+
+    let sch = schema.as_ref()
+        .ok_or_else(|| anyhow::anyhow!("Model missing schema information"))?
+        .clone();
+
+    Ok(TableIdentifier {
+        database: db,
+        schema: sch,
+        table: table.to_string(),
+    })
+}
+
+/// Print drift detection summary
+fn print_drift_summary(report: &Report, checked_models: usize, models_with_drift: usize) {
+    println!("\n{}", "=".repeat(60).bright_blue());
+    println!("{}", "Schema Drift Detection Report".bold().bright_blue());
+    println!("{}", "=".repeat(60).bright_blue());
+    println!();
+
+    println!("Models checked: {}", checked_models);
+    println!("Models with drift: {}", models_with_drift);
+    println!();
+
+    println!("{}", "Summary:".bold());
+    println!("  Total drift diagnostics: {}", report.summary.total);
+
+    if report.summary.errors > 0 {
+        println!("  Errors:   {}", format!("{}", report.summary.errors).red().bold());
+    } else {
+        println!("  Errors:   {}", format!("{}", report.summary.errors).green());
+    }
+
+    if report.summary.warnings > 0 {
+        println!("  Warnings: {}", format!("{}", report.summary.warnings).yellow());
+    } else {
+        println!("  Warnings: {}", format!("{}", report.summary.warnings).green());
+    }
+
+    println!("  Info:     {}", report.summary.info);
+    println!();
+
+    if report.diagnostics.is_empty() {
+        println!("{}", "✓ No drift detected!".green().bold());
+    } else {
+        println!("{}", "Drift Details:".bold());
+        for diag in &report.diagnostics {
+            let severity_str = match diag.severity {
+                schemarefly_core::Severity::Error => "ERROR".red().bold(),
+                schemarefly_core::Severity::Warn => "WARN".yellow().bold(),
+                schemarefly_core::Severity::Info => "INFO".cyan(),
+            };
+
+            println!("  [{}] {}: {}", severity_str, diag.code, diag.message);
+
+            if let Some(loc) = &diag.location {
+                println!("    Location: {}", loc.file);
+            }
+
+            if let Some(exp) = &diag.expected {
+                println!("    Expected: {}", exp);
+            }
+            if let Some(act) = &diag.actual {
+                println!("    Actual:   {}", act);
+            }
+        }
+    }
+
+    println!();
+    println!("{}", "=".repeat(60).bright_blue());
 }
 
 /// Init contracts command - generate contracts from current schemas
