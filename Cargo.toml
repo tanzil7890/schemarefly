@@ -4,6 +4,7 @@ members = [
     "crates/schemarefly-core",
     "crates/schemarefly-dbt",
     "crates/schemarefly-sql",
+    "crates/schemarefly-jinja",
     "crates/schemarefly-catalog",
     "crates/schemarefly-engine",
     "crates/schemarefly-incremental",
@@ -57,10 +58,14 @@ walkdir = "2.4"
 # Async runtime
 tokio = { version = "1.40", features = ["full"] }
 
+# Jinja template engine
+minijinja = "2.5"
+
 # Internal workspace crates
 schemarefly-core = { path = "crates/schemarefly-core" }
 schemarefly-dbt = { path = "crates/schemarefly-dbt" }
 schemarefly-sql = { path = "crates/schemarefly-sql" }
+schemarefly-jinja = { path = "crates/schemarefly-jinja" }
 schemarefly-catalog = { path = "crates/schemarefly-catalog" }
 schemarefly-engine = { path = "crates/schemarefly-engine" }
 schemarefly-incremental = { path = "crates/schemarefly-incremental" }
