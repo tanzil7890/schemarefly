@@ -110,17 +110,17 @@ impl CompatTestHarness {
             }
         };
 
-        // Try to parse SQL
+        // Try to parse SQL (with Jinja template preprocessing)
         let parser = SqlParser::from_dialect(&self.config.dialect);
-        let parsed_sql = match parser.parse(&sql_content, Some(&sql_path)) {
+        let parsed_sql = match parser.parse_with_jinja(&sql_content, Some(&sql_path), None) {
             Ok(parsed) => parsed,
-            Err(err) => {
+            Err(diag) => {
                 return ModelResult {
                     model_name,
                     file_path,
                     outcome: ModelOutcome::ParseFailure(FailureDetail {
-                        code: "SR001".to_string(),
-                        message: format!("SQL parse error: {}", err.error),
+                        code: diag.code.as_str().to_string(),
+                        message: diag.message.clone(),
                         context: Some(extract_error_context(&sql_content, 0)),
                     }),
                 };
