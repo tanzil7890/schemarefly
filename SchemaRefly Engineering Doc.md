@@ -428,39 +428,105 @@ dbt contract enforcement cares about declared name \+ data\_type matching model 
 
 ---
 
-## **Phase 5 — Warehouse drift mode (Week 6–7)**
+## **Phase 5 — Warehouse drift mode (Week 6–7)** ✅ **COMPLETED**
 
 Goal: detect schema changes in sources/tables even if SQL still compiles.
 
-### **BigQuery adapter (start here)**
+### **BigQuery adapter (start here)** ✅
 
 BigQuery provides INFORMATION\_SCHEMA.COLUMNS with one row per column, and documents required IAM permissions and schema fields. [Google Cloud Documentation](https://docs.cloud.google.com/bigquery/docs/information-schema-columns?utm_source=chatgpt.com)
 
-### **Snowflake adapter (second)**
+### **Snowflake adapter (second)** ✅
 
 Snowflake documents INFORMATION\_SCHEMA as a metadata dictionary and provides views to query it. [Snowflake Documentation](https://docs.snowflake.com/en/en/sql-reference/info-schema?utm_source=chatgpt.com)
 
-**Build**
+**Build** ✅
 
-* schemarefly drift:
+* ✅ schemarefly drift:
+  * Implemented in `crates/schemarefly-cli/src/main.rs` (drift_command)
+  * Command: `schemarefly drift --output drift-report.json`
 
-  * fetch current table schemas (metadata-only)
+  * ✅ fetch current table schemas (metadata-only)
+    * Warehouse adapter trait in `crates/schemarefly-catalog/src/adapter.rs`
+    * Async fetch_schema method for fetching table metadata
+    * TableIdentifier (database.schema.table) structure
 
-  * compare to contract expectations
+  * ✅ compare to contract expectations
+    * Drift detection logic in `crates/schemarefly-engine/src/drift_detector.rs`
+    * DriftDetection::detect() compares expected vs actual schemas
+    * Generates diagnostics with proper severity levels
 
-  * classify drift:
+  * ✅ classify drift:
+    * ✅ dropped column - DiagnosticCode::DriftColumnDropped (Error severity)
+    * ✅ type change - DiagnosticCode::DriftTypeChange (Error severity)
+    * ✅ new column - DiagnosticCode::DriftColumnAdded (Info severity)
 
-    * dropped column
+* ✅ Warehouse adapters implemented:
+  * ✅ BigQuery adapter in `crates/schemarefly-catalog/src/bigquery.rs`
+    * INFORMATION_SCHEMA.COLUMNS query template
+    * Type mapping for 15+ BigQuery types (INT64, STRING, BOOL, TIMESTAMP, JSON, etc.)
+    * Application Default Credentials (ADC) support
+    * Service account JSON key support
 
-    * type change
+  * ✅ Snowflake adapter in `crates/schemarefly-catalog/src/snowflake.rs`
+    * INFORMATION_SCHEMA views query template
+    * Type mapping for 20+ Snowflake types (NUMBER, VARCHAR, BOOLEAN, VARIANT, etc.)
+    * DECIMAL precision/scale parsing from NUMBER(p,s) format
+    * Password, PrivateKey, and OAuth authentication support
+    * Warehouse and role configuration
 
-    * new column
+* ✅ Configuration support:
+  * Warehouse config in `schemarefly.toml` via [warehouse] section
+  * Type-based adapter selection (bigquery, snowflake)
+  * Connection settings (project_id, account, credentials, etc.)
 
-* Optional gating policy: “fail PR if drift is breaking”
+* ✅ Drift reporting:
+  * JSON report output (drift-report.json)
+  * Colored terminal summary with statistics
+  * Detailed drift diagnostics with location information
+  * Expected vs Actual value reporting
+  * Exit code 1 on errors (for CI/CD gating)
 
-**Acceptance**
+* ✅ Optional gating policy: "fail PR if drift is breaking"
+  * Implemented via exit code behavior
+  * Returns error code 1 if drift errors detected
+  * Can be used in CI/CD pipelines with --verbose flag
 
-* Drift report reliably flags upstream table schema changes with clear diffs.
+**Acceptance** ✅
+
+* ✅ Drift report reliably flags upstream table schema changes with clear diffs.
+  * 5 comprehensive unit tests in drift_detector module
+  * Tests for: no drift, dropped column, type change, new column, multiple drifts
+  * Exact type matching (no lenient coercion)
+  * DECIMAL precision/scale validation
+  * Proper diagnostic generation with all required fields
+
+**Implementation Details**
+
+* `schemarefly-catalog` crate with warehouse adapters:
+  * Trait-based design for extensibility
+  * Async warehouse metadata fetching
+  * BigQuery and Snowflake INFORMATION_SCHEMA integration
+  * Comprehensive type mapping (40+ warehouse types covered)
+  * Error handling with FetchError enum (Authentication, TableNotFound, Permission, Query, Network, Config errors)
+
+* `schemarefly-engine` drift detection:
+  * DriftDetection struct with expected/actual schemas
+  * Three drift classification categories
+  * Helper methods: has_errors(), has_warnings(), has_info(), error_count(), warning_count(), info_count()
+  * File path location tracking for diagnostics
+
+* CLI integration:
+  * Async drift_command implementation
+  * Warehouse adapter factory based on config
+  * Connection testing before drift detection
+  * Per-model drift checking with progress reporting
+  * Aggregate drift summary with color-coded output
+
+* Test coverage:
+  * 5 unit tests for drift detector
+  * Type mapping tests for both BigQuery and Snowflake
+  * Adapter creation and configuration tests
 
 ---
 
