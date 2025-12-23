@@ -52,6 +52,20 @@ pub enum DiagnosticCode {
     /// Aggregate function in GROUP BY without explicit alias
     SqlGroupByAggregateUnaliased,
 
+    // Jinja template issues (4xxx)
+    /// Failed to render Jinja template
+    JinjaRenderError,
+
+    /// Undefined variable in Jinja template
+    JinjaUndefinedVariable,
+
+    /// Invalid Jinja syntax
+    JinjaSyntaxError,
+
+    // Internal errors (8xxx)
+    /// Internal error (should not happen)
+    InternalError,
+
     // General warnings (9xxx)
     /// General informational message
     Info,
@@ -76,6 +90,10 @@ impl DiagnosticCode {
             Self::SqlParseError => "SQL_PARSE_ERROR",
             Self::SqlInferenceError => "SQL_INFERENCE_ERROR",
             Self::SqlGroupByAggregateUnaliased => "SQL_GROUP_BY_AGGREGATE_UNALIASED",
+            Self::JinjaRenderError => "JINJA_RENDER_ERROR",
+            Self::JinjaUndefinedVariable => "JINJA_UNDEFINED_VARIABLE",
+            Self::JinjaSyntaxError => "JINJA_SYNTAX_ERROR",
+            Self::InternalError => "INTERNAL_ERROR",
             Self::Info => "INFO",
             Self::Warning => "WARNING",
         }
