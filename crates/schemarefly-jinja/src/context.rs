@@ -15,8 +15,8 @@ pub struct DbtContext {
     /// Target configuration (dev, prod, etc.)
     pub target: TargetContext,
 
-    /// Model-specific configuration
-    pub config: HashMap<String, serde_json::Value>,
+    /// Model-specific configuration (renamed from 'config' to avoid shadowing the config() function)
+    pub model_config: HashMap<String, serde_json::Value>,
 
     /// Environment variables (limited set for security)
     pub env_var: HashMap<String, String>,
@@ -38,7 +38,7 @@ impl DbtContext {
         Self {
             vars: HashMap::new(),
             target: TargetContext::default(),
-            config: HashMap::new(),
+            model_config: HashMap::new(),
             env_var: HashMap::new(),
         }
     }
@@ -49,9 +49,9 @@ impl DbtContext {
         self
     }
 
-    /// Add a config value
+    /// Add a model config value
     pub fn add_config(&mut self, key: impl Into<String>, value: serde_json::Value) -> &mut Self {
-        self.config.insert(key.into(), value);
+        self.model_config.insert(key.into(), value);
         self
     }
 
@@ -75,10 +75,14 @@ impl DbtContext {
 
 impl Default for DbtContext {
     fn default() -> Self {
+        let mut vars = HashMap::new();
+        // Add common default variables that many dbt projects use
+        vars.insert("start_date".to_string(), serde_json::Value::String("1999-01-01".to_string()));
+
         Self {
-            vars: HashMap::new(),
+            vars,
             target: TargetContext::default(),
-            config: HashMap::new(),
+            model_config: HashMap::new(),
             env_var: HashMap::new(),
         }
     }
