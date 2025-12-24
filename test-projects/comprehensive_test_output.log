@@ -1,0 +1,60 @@
+[0;34m================================================[0m
+[0;34mSchemaRefly Comprehensive Compatibility Test Suite[0m
+[0;34m================================================[0m
+
+Testing 13 real dbt projects across 3 SQL dialects
+Timestamp: 20251223_151523
+
+[0;34m=== Testing BigQuery Projects ===[0m
+[1;33mTesting: dbt_tutorial (bigquery)[0m
+[0;32m✓ dbt_tutorial completed[0m
+
+[1;33mTesting: dbt_bigquery_example (bigquery)[0m
+[0;32m✓ dbt_bigquery_example completed[0m
+
+[1;33mTesting: dbt_sales_analytics (bigquery)[0m
+[0;32m✓ dbt_sales_analytics completed[0m
+
+[1;33mTesting: dbt-bigquery (bigquery)[0m
+[0;32m✓ dbt-bigquery completed[0m
+
+[0;34m=== Testing Snowflake Projects ===[0m
+[1;33mTesting: snowflake_summit_2025 (snowflake)[0m
+[0;32m✓ snowflake_summit_2025 completed[0m
+
+[1;33mTesting: tasty_bytes_demo (snowflake)[0m
+[0;32m✓ tasty_bytes_demo completed[0m
+
+[1;33mTesting: snowflake_demo (snowflake)[0m
+[0;32m✓ snowflake_demo completed[0m
+
+[1;33mTesting: dbt_snowflake_public (snowflake)[0m
+[0;32m✓ dbt_snowflake_public completed[0m
+
+[0;34m=== Testing Postgres Projects ===[0m
+[1;33mTesting: jaffle_shop_classic (postgres)[0m
+[0;32m✓ jaffle_shop_classic completed[0m
+
+[1;33mTesting: dbt_local_postgres (postgres)[0m
+[0;32m✓ dbt_local_postgres completed[0m
+
+[1;33mTesting: dbt_postgres_demo (postgres)[0m
+[0;32m✓ dbt_postgres_demo completed[0m
+
+[1;33mTesting: dbt_postgres_tutorial (postgres)[0m
+[0;32m✓ dbt_postgres_tutorial completed[0m
+
+[1;33mTesting: dbt_slamco_project (postgres)[0m
+[0;32m✓ dbt_slamco_project completed[0m
+
+[0;34m================================================[0m
+[0;32mAll tests completed![0m
+[0;34m================================================[0m
+
+Results saved to: /Users/mohammadtanzilidrisi/Tanzil/OUTHAD_MAIN/AI-Projects/SchemaRefly/test-projects/results
+
+Next steps:
+  1. Review individual project logs in /Users/mohammadtanzilidrisi/Tanzil/OUTHAD_MAIN/AI-Projects/SchemaRefly/test-projects/results
+  2. Check schemarefly-compat-report.json files in each project
+  3. Run summary script to aggregate results
+
