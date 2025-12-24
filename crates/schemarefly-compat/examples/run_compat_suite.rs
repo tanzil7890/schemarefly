@@ -48,11 +48,19 @@ fn main() -> anyhow::Result<()> {
 
     let mut harness = CompatTestHarness::new(&project_path, config);
 
-    // Load manifest
-    println!("Loading dbt manifest...");
-    harness.load_manifest()?;
+    // Try to load manifest (optional)
+    println!("Checking for dbt manifest...");
+    match harness.load_manifest() {
+        Ok(_) => {
+            println!("✓ Loaded manifest from target/manifest.json");
+        }
+        Err(_) => {
+            println!("⚠ No manifest found - will discover models directly from models/ directory");
+            println!("  (To use manifest: run 'dbt compile' or 'dbt parse' first)");
+        }
+    }
 
-    // Run checks
+    // Run checks (works with or without manifest)
     println!("Running compatibility checks...\n");
     let metrics = harness.run_checks()?;
 
