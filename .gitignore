@@ -6,3 +6,5 @@
 
 # Default Rust template (not used in workspace)
 /src/
+
+.log
