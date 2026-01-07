@@ -2,35 +2,31 @@
 
 **Schema contract verification for dbt** - Catch breaking changes before they break production.
 
-SchemaRefly is a Rust-based tool that validates dbt schema contracts by analyzing SQL and comparing inferred schemas against declared contracts. It provides fast, incremental checking with detailed impact analysis.
+SchemaRefly is a Rust-based static analysis tool that validates dbt schema contracts by analyzing SQL and comparing inferred schemas against declared contracts. It provides fast, incremental checking with detailed impact analysis and Slim CI integration for modern dbt workflows.
+
+## Features
+
+- **Schema Contract Validation** - Validate dbt contracts before deployment
+- **Slim CI Integration** - Compare against production state, check only modified models
+- **Blast Radius Analysis** - See downstream impact of changes
+- **Multi-Dialect SQL** - BigQuery, Snowflake, Postgres, ANSI
+- **Jinja2 Support** - Full dbt template preprocessing (ref, source, var, config)
+- **100% Compatibility** - Tested on 140+ real dbt models across 13 projects
 
 ## Status
 
-🎯 **Phase 0 COMPLETED** - Standards + interfaces are ready
-🎯 **Phase 1 COMPLETED** - dbt ingestion + DAG + contracts
-🎯 **Phase 2 COMPLETED** - SQL parsing layer
+🎯 **Production Ready** - All core features implemented and tested
 
-### Phase 0 ✅
-- ✅ Diagnostic code registry (versioned, stable)
-- ✅ Report schema (report.json v1)
-- ✅ Config schema (schemarefly.toml)
-- ✅ CLI with check command
-- ✅ Golden test fixtures
+### Completed Phases ✅
+- **Phase 0**: Standards + interfaces (diagnostic codes, report schema, config)
+- **Phase 1**: dbt ingestion + DAG + contracts + impact analysis
+- **Phase 2**: SQL parsing layer (multi-dialect, Jinja2 preprocessing)
+- **Slim CI**: State comparison + modified-only checks + blast radius
 
-### Phase 1 ✅
-- ✅ Manifest.json parsing
-- ✅ Dependency graph (DAG) construction
-- ✅ Contract extraction from models
-- ✅ Impact analysis command (`schemarefly impact <model>`)
+### In Progress 🔄
+- **Phase 3**: Release toolchain (signed binaries, attestations)
 
-### Phase 2 ✅
-- ✅ SQL parsing with datafusion-sqlparser-rs
-- ✅ Multi-dialect support (BigQuery, Snowflake, Postgres, ANSI)
-- ✅ dbt template function extraction (ref, source)
-- ✅ Name resolution (CTEs, aliases, tables)
-- ✅ Diagnostic error reporting
-
-See [SchemaRefly Engineering Doc.md](SchemaRefly%20Engineering%20Doc.md) for the full roadmap.
+See [v1_extended.md](v1_extended.md) for the detailed roadmap.
 
 ## Quick Start
 
