@@ -7,3 +7,5 @@ license.workspace = true
 
 [dependencies]
 schemarefly-core.workspace = true
+schemarefly-dbt.workspace = true
+serde = { version = "1.0", features = ["derive"] }

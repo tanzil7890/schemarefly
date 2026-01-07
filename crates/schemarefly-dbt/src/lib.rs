@@ -10,6 +10,6 @@ pub mod manifest;
 pub mod dag;
 pub mod contract;
 
-pub use manifest::{Manifest, ManifestNode, ManifestSource, NodeConfig};
+pub use manifest::{Manifest, ManifestNode, ManifestSource, NodeConfig, ContractConfig, ColumnDefinition, DependsOn, ManifestMetadata};
 pub use dag::{DependencyGraph, NodeId};
 pub use contract::ContractExtractor;
