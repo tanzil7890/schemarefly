@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 
 use schemarefly_core::{Report, Config, Diagnostic};
 use schemarefly_dbt::{Manifest, DependencyGraph, ContractExtractor};
-use schemarefly_engine::DriftDetection;
+use schemarefly_engine::{DriftDetection, StateComparison, StateComparisonResult};
 use schemarefly_sql::DbtFunctionExtractor;
 use schemarefly_catalog::{WarehouseAdapter, TableIdentifier, BigQueryAdapter, SnowflakeAdapter};
 
@@ -37,6 +37,16 @@ enum Commands {
         /// Also output markdown report
         #[arg(short, long)]
         markdown: Option<PathBuf>,
+
+        /// Path to production state manifest (for Slim CI mode)
+        /// Compares current manifest against this state to find modified models
+        #[arg(long, value_name = "PATH")]
+        state: Option<PathBuf>,
+
+        /// Only check modified models (requires --state)
+        /// Skips unchanged models for faster CI runs
+        #[arg(long)]
+        modified_only: bool,
     },
 
     /// Show downstream impact for a model
@@ -84,8 +94,8 @@ async fn main() -> Result<()> {
     }
 
     match cli.command {
-        Commands::Check { output, markdown } => {
-            check_command(&config, &output, markdown.as_ref().map(|v| v.as_path()), cli.verbose)
+        Commands::Check { output, markdown, state, modified_only } => {
+            check_command(&config, &output, markdown.as_ref().map(|v| v.as_path()), state.as_ref(), modified_only, cli.verbose)
         }
         Commands::Impact { model, manifest } => {
             impact_command(&config, &model, &manifest, cli.verbose)
@@ -104,12 +114,27 @@ fn check_command(
     config: &Config,
     output: &PathBuf,
     markdown: Option<&Path>,
+    state_path: Option<&PathBuf>,
+    modified_only: bool,
     verbose: bool,
 ) -> Result<()> {
     use schemarefly_incremental::{SchemaReflyDatabase, queries};
 
+    // Validate flags
+    if modified_only && state_path.is_none() {
+        return Err(anyhow::anyhow!(
+            "--modified-only requires --state <path> to be specified"
+        ));
+    }
+
+    let is_slim_ci = state_path.is_some();
+
     if verbose {
-        eprintln!("{}", "Running schema contract checks (with incremental computation)...".cyan());
+        if is_slim_ci {
+            eprintln!("{}", "Running Slim CI schema contract checks...".cyan().bold());
+        } else {
+            eprintln!("{}", "Running schema contract checks (with incremental computation)...".cyan());
+        }
     }
 
     // Find manifest path
@@ -132,7 +157,7 @@ fn check_command(
     let manifest_json = std::fs::read_to_string(manifest_path)?;
 
     // Create Salsa inputs
-    let manifest_input = queries::ManifestInput::new(&db, manifest_json);
+    let manifest_input = queries::ManifestInput::new(&db, manifest_json.clone());
     let config_input = queries::ConfigInput::new(&db, config.clone());
 
     if verbose {
@@ -146,23 +171,106 @@ fn check_command(
     // Build dependency graph for impact analysis
     let dag = DependencyGraph::from_manifest(&manifest);
 
+    // Slim CI: Compare against state manifest if provided
+    let state_comparison = if let Some(state_manifest_path) = state_path {
+        if !state_manifest_path.exists() {
+            return Err(anyhow::anyhow!(
+                "State manifest not found at {}",
+                state_manifest_path.display()
+            ));
+        }
+
+        if verbose {
+            eprintln!("{} {}", "Loading state manifest from:".cyan(), state_manifest_path.display());
+        }
+
+        let state_manifest = Manifest::from_file(state_manifest_path)
+            .map_err(|e| anyhow::anyhow!("Failed to load state manifest: {}", e))?;
+
+        let comparison = StateComparison::compare(&manifest, &state_manifest);
+
+        if verbose {
+            eprintln!();
+            eprintln!("{}", "=".repeat(60).bright_blue());
+            eprintln!("{}", "Slim CI State Comparison".bold().bright_blue());
+            eprintln!("{}", "=".repeat(60).bright_blue());
+            eprintln!();
+            eprintln!("  {} {}", "Modified models:".bold(), comparison.modified_models.len());
+            eprintln!("  {} {}", "New models:".bold(), comparison.new_models.len());
+            eprintln!("  {} {}", "Deleted models:".bold(), comparison.deleted_models.len());
+            eprintln!("  {} {}", "Total blast radius:".bold(), comparison.total_blast_radius);
+            eprintln!();
+
+            if !comparison.modified_models.is_empty() {
+                eprintln!("{}", "Modified models and their downstream impact:".bold());
+                for modified in &comparison.modified_models {
+                    let reasons: Vec<String> = modified.reasons.iter().map(|r| r.to_string()).collect();
+                    eprintln!("  {} {} ({})", "→".yellow(), modified.name.yellow(), reasons.join(", "));
+                    if modified.downstream_count > 0 {
+                        eprintln!("    {} downstream models affected", modified.downstream_count.to_string().red());
+                    }
+                }
+                eprintln!();
+            }
+        }
+
+        Some(comparison)
+    } else {
+        None
+    };
+
+    // Get set of models to check (filter by modified if --modified-only)
+    let models_to_check: std::collections::HashSet<String> = if modified_only {
+        if let Some(ref comparison) = state_comparison {
+            comparison.all_affected_models.clone()
+        } else {
+            std::collections::HashSet::new()
+        }
+    } else {
+        // Check all models
+        manifest.models().keys().cloned().collect()
+    };
+
     if verbose {
-        eprintln!("{}", "Checking contracts for all models...".cyan());
+        if modified_only {
+            eprintln!("{} {} models (modified + downstream)...", "Checking".cyan(), models_to_check.len());
+        } else {
+            eprintln!("{}", "Checking contracts for all models...".cyan());
+        }
     }
 
     // Collect diagnostics from all contract checks
     let mut all_diagnostics = Vec::new();
     let mut checked_models = 0;
     let mut models_with_contracts = 0;
+    let mut skipped_models = 0;
 
     // Check each model with a contract
     for (node_id, node) in manifest.models() {
+        // Skip if not in models_to_check (for Slim CI)
+        if modified_only && !models_to_check.contains(&node_id) {
+            skipped_models += 1;
+            continue;
+        }
+
         // Extract contract if present
         if let Some(_contract) = ContractExtractor::extract_from_node(node) {
             models_with_contracts += 1;
 
             if verbose {
-                eprintln!("  {} {}...", "Checking".cyan(), node.name);
+                // Show if model is modified in Slim CI mode
+                let modified_indicator = if let Some(ref comparison) = state_comparison {
+                    if comparison.modified_model_ids().contains(&node_id) {
+                        " [MODIFIED]".yellow().to_string()
+                    } else if comparison.all_affected_models.contains(&node_id) {
+                        " [DOWNSTREAM]".cyan().to_string()
+                    } else {
+                        String::new()
+                    }
+                } else {
+                    String::new()
+                };
+                eprintln!("  {} {}{}...", "Checking".cyan(), node.name, modified_indicator);
             }
 
             // Find SQL file path
@@ -246,10 +354,38 @@ fn check_command(
             "Checked {} models ({} with contracts)",
             checked_models, models_with_contracts
         );
+        if modified_only {
+            eprintln!("Skipped {} unchanged models", skipped_models);
+        }
     }
 
     // Build report with diagnostics
-    let report = Report::from_diagnostics(all_diagnostics);
+    let mut report = Report::from_diagnostics(all_diagnostics);
+
+    // Add Slim CI metadata if state comparison was performed
+    if let Some(ref comparison) = state_comparison {
+        let slim_ci_metadata = serde_json::json!({
+            "slim_ci": {
+                "enabled": true,
+                "modified_only": modified_only,
+                "modified_models": comparison.modified_models.iter().map(|m| {
+                    serde_json::json!({
+                        "unique_id": m.unique_id,
+                        "name": m.name,
+                        "reasons": m.reasons.iter().map(|r| r.to_string()).collect::<Vec<_>>(),
+                        "downstream_count": m.downstream_count,
+                        "downstream_models": m.downstream_impact
+                    })
+                }).collect::<Vec<_>>(),
+                "new_models": comparison.new_models,
+                "deleted_models": comparison.deleted_models,
+                "total_blast_radius": comparison.total_blast_radius,
+                "models_checked": checked_models,
+                "models_skipped": skipped_models
+            }
+        });
+        report.metadata = Some(slim_ci_metadata);
+    }
 
     // Save JSON report
     report.save_to_file(output)?;
@@ -260,7 +396,7 @@ fn check_command(
 
     // Save markdown report if requested
     if let Some(md_path) = markdown {
-        let markdown_content = generate_markdown_report(&report);
+        let markdown_content = generate_markdown_report(&report, state_comparison.as_ref());
         std::fs::write(md_path, markdown_content)?;
         if verbose {
             eprintln!("{} {}", "Markdown report saved to:".green(), md_path.display());
@@ -723,12 +859,57 @@ fn print_report_summary(report: &Report) {
 }
 
 /// Generate markdown report
-fn generate_markdown_report(report: &Report) -> String {
+fn generate_markdown_report(report: &Report, state_comparison: Option<&StateComparisonResult>) -> String {
     let mut md = String::new();
 
     md.push_str("# Schema Contract Check Report\n\n");
     md.push_str(&format!("**Version:** {}\n\n", report.version));
     md.push_str(&format!("**Timestamp:** {}\n\n", report.timestamp));
+
+    // Add Slim CI section if state comparison was performed
+    if let Some(comparison) = state_comparison {
+        md.push_str("## Slim CI Analysis\n\n");
+        md.push_str("This report was generated in **Slim CI mode**, comparing against a production state manifest.\n\n");
+
+        md.push_str("### Change Summary\n\n");
+        md.push_str(&format!("| Metric | Count |\n"));
+        md.push_str(&format!("|--------|-------|\n"));
+        md.push_str(&format!("| Modified models | {} |\n", comparison.modified_models.len()));
+        md.push_str(&format!("| New models | {} |\n", comparison.new_models.len()));
+        md.push_str(&format!("| Deleted models | {} |\n", comparison.deleted_models.len()));
+        md.push_str(&format!("| Total blast radius | {} |\n", comparison.total_blast_radius));
+        md.push_str("\n");
+
+        if !comparison.modified_models.is_empty() {
+            md.push_str("### Modified Models\n\n");
+            for modified in &comparison.modified_models {
+                let reasons: Vec<String> = modified.reasons.iter().map(|r| r.to_string()).collect();
+                md.push_str(&format!("#### `{}`\n\n", modified.name));
+                md.push_str(&format!("- **Unique ID:** `{}`\n", modified.unique_id));
+                md.push_str(&format!("- **Reason:** {}\n", reasons.join(", ")));
+                md.push_str(&format!("- **Downstream impact:** {} models\n", modified.downstream_count));
+
+                if !modified.downstream_impact.is_empty() {
+                    md.push_str("\n**Affected downstream models:**\n\n");
+                    for downstream in &modified.downstream_impact {
+                        md.push_str(&format!("- `{}`\n", downstream));
+                    }
+                }
+                md.push_str("\n");
+            }
+        }
+
+        if !comparison.deleted_models.is_empty() {
+            md.push_str("### Deleted Models\n\n");
+            md.push_str("⚠️ The following models were removed:\n\n");
+            for deleted in &comparison.deleted_models {
+                md.push_str(&format!("- `{}`\n", deleted));
+            }
+            md.push_str("\n");
+        }
+
+        md.push_str("---\n\n");
+    }
 
     md.push_str("## Summary\n\n");
     md.push_str(&format!("- Total diagnostics: {}\n", report.summary.total));

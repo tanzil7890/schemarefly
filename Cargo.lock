@@ -1319,6 +1319,8 @@ name = "schemarefly-engine"
 version = "0.1.0"
 dependencies = [
  "schemarefly-core",
+ "schemarefly-dbt",
+ "serde",
 ]
 
 [[package]]
