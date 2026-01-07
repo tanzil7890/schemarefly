@@ -1,0 +1,349 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+      - 'v[0-9]+.[0-9]+.[0-9]+-*'  # Pre-releases like v0.1.0-beta.1
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag (e.g., v0.1.0)'
+        required: true
+        type: string
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  BINARY_NAME: schemarefly
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+jobs:
+  # Validate the release
+  validate:
+    name: Validate Release
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      is_prerelease: ${{ steps.version.outputs.is_prerelease }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Extract version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            TAG="${{ inputs.tag }}"
+          else
+            TAG="${GITHUB_REF#refs/tags/}"
+          fi
+
+          # Extract version without 'v' prefix
+          VERSION="${TAG#v}"
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+          # Check if pre-release
+          if [[ "$VERSION" == *"-"* ]]; then
+            echo "is_prerelease=true" >> $GITHUB_OUTPUT
+          else
+            echo "is_prerelease=false" >> $GITHUB_OUTPUT
+          fi
+
+          echo "Release version: $VERSION"
+
+      - name: Verify Cargo.toml version matches tag
+        run: |
+          CARGO_VERSION=$(grep -m1 'version = ' Cargo.toml | sed 's/.*"\(.*\)".*/\1/')
+          TAG_VERSION="${{ steps.version.outputs.version }}"
+
+          # Strip any pre-release suffix for comparison
+          TAG_BASE="${TAG_VERSION%%-*}"
+
+          if [ "$CARGO_VERSION" != "$TAG_BASE" ]; then
+            echo "::error::Version mismatch! Cargo.toml has $CARGO_VERSION but tag is $TAG_VERSION"
+            echo "Please update Cargo.toml version to match the release tag."
+            exit 1
+          fi
+
+          echo "✓ Version $CARGO_VERSION matches tag"
+
+  # Run full test suite before release
+  test:
+    name: Test Suite
+    runs-on: ubuntu-latest
+    needs: validate
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-release-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Run tests
+        run: cargo test --workspace --all-features
+
+      - name: Run clippy
+        run: cargo clippy --workspace --all-features -- -D warnings
+
+  # Build binaries for all platforms
+  build:
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    needs: [validate, test]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux x86_64 (GNU)
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            archive: tar.gz
+
+          # Linux x86_64 (MUSL - static binary)
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            archive: tar.gz
+
+          # Linux ARM64
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            archive: tar.gz
+            cross: true
+
+          # macOS x86_64 (Intel)
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            archive: tar.gz
+
+          # macOS ARM64 (Apple Silicon)
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            archive: tar.gz
+
+          # Windows x86_64
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            archive: zip
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install musl-tools (Linux MUSL)
+        if: matrix.target == 'x86_64-unknown-linux-musl'
+        run: sudo apt-get update && sudo apt-get install -y musl-tools
+
+      - name: Install cross-compilation tools (Linux ARM64)
+        if: matrix.cross
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu
+
+      - name: Configure cross-compilation (Linux ARM64)
+        if: matrix.cross
+        run: |
+          echo "[target.aarch64-unknown-linux-gnu]" >> ~/.cargo/config.toml
+          echo "linker = \"aarch64-linux-gnu-gcc\"" >> ~/.cargo/config.toml
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-${{ matrix.target }}-cargo-release-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build release binary
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Prepare artifact (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          ARTIFACT_DIR="schemarefly-${{ needs.validate.outputs.version }}-${{ matrix.target }}"
+          mkdir -p "$ARTIFACT_DIR"
+
+          cp "target/${{ matrix.target }}/release/${{ env.BINARY_NAME }}" "$ARTIFACT_DIR/"
+          cp README.md LICENSE* STABILITY.md "$ARTIFACT_DIR/" 2>/dev/null || true
+
+          # Create archive
+          tar -czvf "$ARTIFACT_DIR.tar.gz" "$ARTIFACT_DIR"
+
+          # Generate checksum
+          shasum -a 256 "$ARTIFACT_DIR.tar.gz" > "$ARTIFACT_DIR.tar.gz.sha256"
+
+          echo "ARTIFACT_PATH=$ARTIFACT_DIR.tar.gz" >> $GITHUB_ENV
+          echo "CHECKSUM_PATH=$ARTIFACT_DIR.tar.gz.sha256" >> $GITHUB_ENV
+
+      - name: Prepare artifact (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ARTIFACT_DIR = "schemarefly-${{ needs.validate.outputs.version }}-${{ matrix.target }}"
+          New-Item -ItemType Directory -Force -Path $ARTIFACT_DIR
+
+          Copy-Item "target/${{ matrix.target }}/release/${{ env.BINARY_NAME }}.exe" "$ARTIFACT_DIR/"
+          Copy-Item README.md, STABILITY.md -Destination $ARTIFACT_DIR -ErrorAction SilentlyContinue
+
+          # Create zip archive
+          Compress-Archive -Path $ARTIFACT_DIR -DestinationPath "$ARTIFACT_DIR.zip"
+
+          # Generate checksum
+          $hash = (Get-FileHash "$ARTIFACT_DIR.zip" -Algorithm SHA256).Hash.ToLower()
+          "$hash  $ARTIFACT_DIR.zip" | Out-File -FilePath "$ARTIFACT_DIR.zip.sha256" -Encoding ASCII
+
+          echo "ARTIFACT_PATH=$ARTIFACT_DIR.zip" >> $env:GITHUB_ENV
+          echo "CHECKSUM_PATH=$ARTIFACT_DIR.zip.sha256" >> $env:GITHUB_ENV
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: schemarefly-${{ matrix.target }}
+          path: |
+            ${{ env.ARTIFACT_PATH }}
+            ${{ env.CHECKSUM_PATH }}
+          if-no-files-found: error
+
+      # Generate artifact attestation for supply-chain security
+      - name: Generate artifact attestation
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: ${{ env.ARTIFACT_PATH }}
+
+  # Create GitHub Release
+  release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    needs: [validate, build]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: List artifacts
+        run: |
+          echo "Downloaded artifacts:"
+          find artifacts -type f | sort
+
+      - name: Generate release notes
+        id: release_notes
+        run: |
+          VERSION="${{ needs.validate.outputs.version }}"
+
+          cat << 'EOF' > release_notes.md
+          ## Installation
+
+          ### Quick Install (Unix)
+
+          ```bash
+          # Linux x86_64
+          curl -fsSL https://github.com/${{ github.repository }}/releases/download/v${VERSION}/schemarefly-${VERSION}-x86_64-unknown-linux-gnu.tar.gz | tar -xz
+
+          # macOS (Apple Silicon)
+          curl -fsSL https://github.com/${{ github.repository }}/releases/download/v${VERSION}/schemarefly-${VERSION}-aarch64-apple-darwin.tar.gz | tar -xz
+
+          # macOS (Intel)
+          curl -fsSL https://github.com/${{ github.repository }}/releases/download/v${VERSION}/schemarefly-${VERSION}-x86_64-apple-darwin.tar.gz | tar -xz
+          ```
+
+          ### Verify Download
+
+          All release artifacts include SHA-256 checksums and are signed with GitHub artifact attestations.
+
+          ```bash
+          # Verify checksum
+          shasum -a 256 -c schemarefly-*.sha256
+
+          # Verify attestation (requires GitHub CLI)
+          gh attestation verify schemarefly-*.tar.gz --repo ${{ github.repository }}
+          ```
+
+          ### Available Binaries
+
+          | Platform | Architecture | File |
+          |----------|--------------|------|
+          | Linux | x86_64 (GNU) | `schemarefly-${VERSION}-x86_64-unknown-linux-gnu.tar.gz` |
+          | Linux | x86_64 (MUSL/static) | `schemarefly-${VERSION}-x86_64-unknown-linux-musl.tar.gz` |
+          | Linux | ARM64 | `schemarefly-${VERSION}-aarch64-unknown-linux-gnu.tar.gz` |
+          | macOS | x86_64 (Intel) | `schemarefly-${VERSION}-x86_64-apple-darwin.tar.gz` |
+          | macOS | ARM64 (Apple Silicon) | `schemarefly-${VERSION}-aarch64-apple-darwin.tar.gz` |
+          | Windows | x86_64 | `schemarefly-${VERSION}-x86_64-pc-windows-msvc.zip` |
+
+          ## Changelog
+
+          See [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md) for detailed changes.
+
+          ## Stability
+
+          This release follows our [stability contract](https://github.com/${{ github.repository }}/blob/main/STABILITY.md):
+          - Report schema version: v1.0 (backward-compatible)
+          - Diagnostic codes: Immutable (never renamed or removed)
+          EOF
+
+          # Substitute version in release notes
+          sed -i "s/\${VERSION}/$VERSION/g" release_notes.md
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: SchemaRefly v${{ needs.validate.outputs.version }}
+          body_path: release_notes.md
+          draft: false
+          prerelease: ${{ needs.validate.outputs.is_prerelease == 'true' }}
+          files: |
+            artifacts/**/*.tar.gz
+            artifacts/**/*.zip
+            artifacts/**/*.sha256
+          fail_on_unmatched_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Verify the release
+  verify:
+    name: Verify Release
+    runs-on: ubuntu-latest
+    needs: [validate, release]
+    steps:
+      - name: Verify release artifacts
+        run: |
+          VERSION="${{ needs.validate.outputs.version }}"
+          REPO="${{ github.repository }}"
+
+          echo "Verifying release v$VERSION..."
+
+          # Wait for release to be available
+          sleep 10
+
+          # Check release exists
+          gh release view "v$VERSION" --repo "$REPO" || {
+            echo "::error::Release v$VERSION not found"
+            exit 1
+          }
+
+          echo "✓ Release v$VERSION verified successfully"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
