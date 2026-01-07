@@ -90,26 +90,55 @@ See [test-projects/FINAL_TEST_SUMMARY.md](test-projects/FINAL_TEST_SUMMARY.md) f
 
 ---
 
-## **2\) Ship "Slim CI" integration as the default UX (1 week)**
+## **2\) Ship "Slim CI" integration as the default UX (1 week)** ✅ **COMPLETED**
 
 Make SchemaRefly *feel* native in modern dbt CI.
 
-**Do this next**
+**Implemented (January 2026):**
 
-* Add a first-class mode: schemarefly check \--state \<prod\_artifacts\_dir\> \--modified-only
+* ✅ **`--state <path>`** flag: Compare current manifest against production state manifest
+* ✅ **`--modified-only`** flag: Only check modified models and their downstream (faster CI)
+* ✅ **State comparison engine**: `StateComparison` module in `schemarefly-engine`
+* ✅ **Modification detection**: Detects changes in SQL, columns, dependencies, contracts, materialization
+* ✅ **Blast radius analysis**: Calculates downstream impact for each modified model
+* ✅ **Enhanced reports**: JSON and Markdown reports include Slim CI metadata
 
-  * Compare current manifest vs state manifest, similar to dbt’s state selection concept. [dbt Developer Hub+1](https://docs.getdbt.com/reference/node-selection/state-selection?utm_source=chatgpt.com)
+**CLI Usage:**
+```bash
+# Compare against production state
+schemarefly check --state prod/manifest.json
 
-* Output a report that pairs perfectly with the common Slim CI pattern:
+# Only check modified models (faster CI)
+schemarefly check --state prod/manifest.json --modified-only
 
-  * changed models (state:modified equivalent)
+# With verbose output and markdown report
+schemarefly check --state prod/manifest.json --modified-only -v -m report.md
+```
 
-  * their downstream blast radius
+**Report Output (JSON):**
+```json
+{
+  "metadata": {
+    "slim_ci": {
+      "enabled": true,
+      "modified_only": false,
+      "modified_models": [...],
+      "new_models": [...],
+      "deleted_models": [...],
+      "total_blast_radius": 5
+    }
+  }
+}
+```
 
-  * contract breakages before execution
+**Technical Implementation:**
+- `crates/schemarefly-engine/src/state_comparison.rs`: State comparison logic
+- `ModifiedModel` struct with reasons, downstream impact, blast radius
+- `ModificationReason` enum: New, SqlChanged, ColumnsChanged, DependenciesChanged, ContractChanged, MaterializationChanged, Deleted
+- Unit tests for all comparison scenarios
 
-**Why**  
- dbt’s state \+ defer features are explicitly designed to enable “Slim CI” workflows, and teams already adopt that mental model. [dbt Developer Hub+2dbt Developer Hub+2](https://docs.getdbt.com/reference/node-selection/defer?utm_source=chatgpt.com)
+**Why**
+ dbt's state \+ defer features are explicitly designed to enable "Slim CI" workflows, and teams already adopt that mental model. [dbt Developer Hub+2dbt Developer Hub+2](https://docs.getdbt.com/reference/node-selection/defer?utm_source=chatgpt.com)
 
 ---
 
