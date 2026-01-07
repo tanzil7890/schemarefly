@@ -29,7 +29,7 @@ pub enum ModelType {
 }
 
 /// Reason why a model is unsupported
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum UnsupportedReason {
     /// Python models don't support dbt contracts
     PythonModel,
