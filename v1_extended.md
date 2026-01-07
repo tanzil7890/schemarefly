@@ -203,30 +203,57 @@ gh attestation verify schemarefly-*.tar.gz --repo owner/schemarefly
 
 ---
 
-## **4\) Make adoption frictionless (the “3 commands” experience)**
+## **4\) Make adoption frictionless (the "3 commands" experience)** ✅ **COMPLETED**
 
-You’re competing with “just run dbt.” Your onboarding must be almost identical.
+You're competing with "just run dbt." Your onboarding must be almost identical.
 
-**Do this next**
+**Implemented (January 2026):**
 
-* schemarefly init:
+* ✅ **`schemarefly init`** - Initialize SchemaRefly in a dbt project:
+  - Detects dbt project (validates `dbt_project.yml` exists)
+  - Writes `schemarefly.toml` with dialect-specific configuration template
+  - Creates starter GitHub workflow (`.github/workflows/schemarefly.yml`)
+  - Supports `--dialect` (bigquery, snowflake, postgres, ansi)
+  - Supports `--skip-workflow` and `--force` flags
 
-  * detects dbt project
+* ✅ **`schemarefly init-contracts`** - Generate contract stubs from schemas:
+  - Generates YAML contract stubs for all models
+  - Uses `catalog.json` for precise type information (if available)
+  - Falls back to manifest columns or SQL inference
+  - Supports `--output-dir`, `--manifest`, `--catalog`, `--force`, `--enforced-only`
+  - Outputs ready-to-copy YAML for dbt schema.yml files
 
-  * writes schemarefly.toml
+* ✅ **PR comment mode (`--pr-comment`)** - Optimized GitHub PR output:
+  - Status badge (✅ Passed, ⚠️ Warnings, ❌ Failed)
+  - Concise summary table with error/warning/info counts
+  - Errors shown prominently, warnings in collapsible sections
+  - Slim CI metrics (modified models, blast radius)
+  - Hidden marker for comment update detection
 
-  * creates a starter GitHub workflow (or CI snippet)
+**CLI Usage:**
 
-* schemarefly init-contracts:
+```bash
+# Initialize SchemaRefly (3 commands!)
+cd my-dbt-project
+schemarefly init --dialect snowflake
+dbt compile
+schemarefly check
 
-  * generates contract stubs from inferred schema \+ catalog.json if available
+# Generate contract stubs
+schemarefly init-contracts --output-dir contracts
 
-* “PR comment mode”:
+# PR comment mode for CI
+schemarefly check --state prod/manifest.json --modified-only --pr-comment > pr-comment.md
+```
 
-  * output a single markdown summary optimized for GitHub PRs
+**Generated Workflow Features:**
+- Automatic dbt compile and schema check on every PR
+- Slim CI with state comparison against base branch
+- Auto-commenting on PRs with collapsible results
+- Updates existing comments instead of creating new ones
 
-**Anchor to dbt artifacts**  
- dbt produces manifest.json, catalog.json, etc. as artifacts used for docs/state and more—your tool should clearly document which commands generate which artifacts and what minimum set you need. [dbt Developer Hub+1](https://docs.getdbt.com/reference/artifacts/dbt-artifacts?utm_source=chatgpt.com)
+**Files Modified:**
+- `crates/schemarefly-cli/src/main.rs` - Added init, init-contracts commands, PR comment mode
 
 ---
 

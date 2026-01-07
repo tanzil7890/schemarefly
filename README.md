@@ -23,9 +23,10 @@ SchemaRefly is a Rust-based static analysis tool that validates dbt schema contr
 - **Phase 2**: SQL parsing layer (multi-dialect, Jinja2 preprocessing)
 - **Slim CI**: State comparison + modified-only checks + blast radius
 - **Phase 3**: Release toolchain (signed binaries, attestations, stability contract)
+- **Phase 4**: Frictionless adoption (init, init-contracts, PR comment mode)
 
 ### In Progress 🔄
-- **Phase 4**: Frictionless adoption (init commands, PR comment mode)
+- **Phase 5**: VS Code extension packaging
 
 See [v1_extended.md](v1_extended.md) for the detailed roadmap.
 
@@ -193,14 +194,53 @@ SchemaRefly generates **stable, versioned JSON reports** (v1.0):
 
 ## Commands
 
+### init
+Initialize SchemaRefly in a dbt project.
+
+```bash
+schemarefly init [--dialect bigquery] [--path .]
+
+# Examples
+schemarefly init --dialect snowflake
+schemarefly init --skip-workflow  # Skip GitHub workflow creation
+schemarefly init --force          # Overwrite existing files
+```
+
+**Status**: ✅ Functional
+
+Creates `schemarefly.toml` and `.github/workflows/schemarefly.yml` with best-practice defaults.
+
 ### check
 Validate schema contracts against inferred schemas.
 
 ```bash
 schemarefly check [--output report.json] [--markdown report.md]
+
+# Slim CI mode
+schemarefly check --state prod/manifest.json --modified-only
+
+# PR comment mode (outputs GitHub-optimized markdown)
+schemarefly check --pr-comment > pr-comment.md
 ```
 
-**Status**: ✅ Functional (produces empty report in Phase 0)
+**Status**: ✅ Functional
+
+### init-contracts
+Generate contract stubs from current schemas.
+
+```bash
+schemarefly init-contracts [models...] [--output-dir contracts]
+
+# Examples
+schemarefly init-contracts                        # All models
+schemarefly init-contracts users orders           # Specific models
+schemarefly init-contracts --catalog target/catalog.json  # Use catalog for types
+schemarefly init-contracts --enforced-only        # Only models with enforced contracts
+```
+
+**Status**: ✅ Functional
+
+Generates YAML contract stubs ready to copy into your dbt schema.yml files.
 
 ### impact
 Show downstream dependencies for a model.
@@ -266,10 +306,10 @@ cargo run --bin schemarefly -- check --verbose
 - ✅ **Phase 2**: SQL parsing layer (COMPLETED)
 - ✅ **Slim CI**: State comparison + modified-only checks (COMPLETED)
 - ✅ **Phase 3**: Release toolchain (COMPLETED)
-- 🚧 **Phase 4**: Frictionless adoption (init commands, PR mode)
-- 🚧 **Phase 5**: Warehouse drift mode
-- 🚧 **Phase 6**: Incremental performance hardening
-- 🚧 **Phase 7**: LSP + VS Code extension
+- ✅ **Phase 4**: Frictionless adoption (COMPLETED)
+- 🚧 **Phase 5**: VS Code extension
+- 🚧 **Phase 6**: Warehouse drift mode
+- 🚧 **Phase 7**: Incremental performance hardening
 
 See [v1_extended.md](v1_extended.md) for detailed roadmap.
 
