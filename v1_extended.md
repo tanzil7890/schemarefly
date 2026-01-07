@@ -73,9 +73,24 @@ Extended Jinja support with dbt_utils package macros and custom macro fallbacks,
 
 See [test-projects/FINAL_TEST_SUMMARY.md](test-projects/FINAL_TEST_SUMMARY.md) for detailed results.
 
+**Test Suite Hardening (January 2026):**
+* ✅ Fixed test compilation errors (minijinja 2.14+ API compatibility)
+* ✅ Added PartialEq derives for test assertions
+* ✅ **102 unit tests** passing across all crates
+* ✅ **6 integration tests** for SQL workflow validation
+* ✅ **GitHub Actions CI workflow** added (`.github/workflows/ci.yml`)
+
+**CI Pipeline Features:**
+- Multi-platform testing (Ubuntu, macOS)
+- Rust formatting check (`cargo fmt`)
+- Clippy linting with `-D warnings`
+- Release binary builds for Linux and macOS (x86_64, aarch64)
+- Artifact upload for release binaries
+- Compatibility suite verification
+
 ---
 
-## **2\) Ship “Slim CI” integration as the default UX (1 week)**
+## **2\) Ship "Slim CI" integration as the default UX (1 week)**
 
 Make SchemaRefly *feel* native in modern dbt CI.
 
@@ -98,17 +113,19 @@ Make SchemaRefly *feel* native in modern dbt CI.
 
 ---
 
-## **3\) Release like a serious compiler toolchain (1–2 weeks)**
+## **3\) Release like a serious compiler toolchain (1–2 weeks)** 🔄 **IN PROGRESS**
 
-If you want “industry standard,” your releases must be **trustable** and **easy to install**.
+If you want "industry standard," your releases must be **trustable** and **easy to install**.
 
 **Do this next**
 
-* Publish signed binaries for macOS/Linux/Windows and a predictable install story.
+* ✅ **GitHub Actions CI pipeline** - Multi-platform builds for macOS/Linux (`.github/workflows/ci.yml`)
 
-* Add **artifact attestations** in GitHub Actions (supply-chain trust), so users can verify provenance. [GitHub Docs+1](https://docs.github.com/en/actions/security-for-github-actions/using-artifact-attestations?utm_source=chatgpt.com)
+* ⬜ Publish signed binaries for macOS/Linux/Windows and a predictable install story.
 
-* Add a small “stability contract”:
+* ⬜ Add **artifact attestations** in GitHub Actions (supply-chain trust), so users can verify provenance. [GitHub Docs+1](https://docs.github.com/en/actions/security-for-github-actions/using-artifact-attestations?utm_source=chatgpt.com)
+
+* ⬜ Add a small "stability contract":
 
   * report.json schema versioning (no breaking changes in minor versions)
 
