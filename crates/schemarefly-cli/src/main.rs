@@ -3,7 +3,7 @@ use colored::Colorize;
 use anyhow::Result;
 use std::path::{Path, PathBuf};
 
-use schemarefly_core::{Report, Config, Diagnostic};
+use schemarefly_core::{Report, Config, Diagnostic, DialectConfig};
 use schemarefly_dbt::{Manifest, DependencyGraph, ContractExtractor};
 use schemarefly_engine::{DriftDetection, StateComparison, StateComparisonResult};
 use schemarefly_sql::DbtFunctionExtractor;
@@ -47,6 +47,30 @@ enum Commands {
         /// Skips unchanged models for faster CI runs
         #[arg(long)]
         modified_only: bool,
+
+        /// Output a concise PR comment to stdout (optimized for GitHub PRs)
+        /// Includes collapsible details and summary badge
+        #[arg(long)]
+        pr_comment: bool,
+    },
+
+    /// Initialize SchemaRefly in a dbt project
+    Init {
+        /// Path to dbt project (default: current directory)
+        #[arg(short, long)]
+        path: Option<PathBuf>,
+
+        /// SQL dialect to use
+        #[arg(short, long, default_value = "bigquery")]
+        dialect: String,
+
+        /// Skip creating GitHub workflow
+        #[arg(long)]
+        skip_workflow: bool,
+
+        /// Force overwrite existing files
+        #[arg(short, long)]
+        force: bool,
     },
 
     /// Show downstream impact for a model
@@ -66,10 +90,30 @@ enum Commands {
         output: PathBuf,
     },
 
-    /// Initialize contracts for existing models
+    /// Initialize contracts for existing models (generates YAML stubs)
     InitContracts {
         /// Models to initialize (or all if not specified)
         models: Vec<String>,
+
+        /// Output directory for generated contract YAML files
+        #[arg(short, long, default_value = "contracts")]
+        output_dir: PathBuf,
+
+        /// Path to dbt manifest.json
+        #[arg(short = 'f', long, default_value = "target/manifest.json")]
+        manifest: PathBuf,
+
+        /// Path to catalog.json (optional, improves type inference)
+        #[arg(long)]
+        catalog: Option<PathBuf>,
+
+        /// Overwrite existing contract files
+        #[arg(long)]
+        force: bool,
+
+        /// Only generate contracts for models with enforced contracts
+        #[arg(long)]
+        enforced_only: bool,
     },
 }
 
@@ -94,8 +138,11 @@ async fn main() -> Result<()> {
     }
 
     match cli.command {
-        Commands::Check { output, markdown, state, modified_only } => {
-            check_command(&config, &output, markdown.as_ref().map(|v| v.as_path()), state.as_ref(), modified_only, cli.verbose)
+        Commands::Check { output, markdown, state, modified_only, pr_comment } => {
+            check_command(&config, &output, markdown.as_ref().map(|v| v.as_path()), state.as_ref(), modified_only, pr_comment, cli.verbose)
+        }
+        Commands::Init { path, dialect, skip_workflow, force } => {
+            init_command(path.as_ref(), &dialect, skip_workflow, force, cli.verbose)
         }
         Commands::Impact { model, manifest } => {
             impact_command(&config, &model, &manifest, cli.verbose)
@@ -103,8 +150,8 @@ async fn main() -> Result<()> {
         Commands::Drift { output } => {
             drift_command(&config, &output, cli.verbose).await
         }
-        Commands::InitContracts { models } => {
-            init_contracts_command(&config, &models, cli.verbose)
+        Commands::InitContracts { models, output_dir, manifest, catalog, force, enforced_only } => {
+            init_contracts_command(&config, &models, &output_dir, &manifest, catalog.as_ref(), force, enforced_only, cli.verbose)
         }
     }
 }
@@ -116,6 +163,7 @@ fn check_command(
     markdown: Option<&Path>,
     state_path: Option<&PathBuf>,
     modified_only: bool,
+    pr_comment: bool,
     verbose: bool,
 ) -> Result<()> {
     use schemarefly_incremental::{SchemaReflyDatabase, queries};
@@ -403,8 +451,14 @@ fn check_command(
         }
     }
 
-    // Print summary
-    print_report_summary(&report);
+    // Output PR comment if requested
+    if pr_comment {
+        let pr_markdown = generate_pr_comment(&report, state_comparison.as_ref());
+        println!("{}", pr_markdown);
+    } else {
+        // Print summary (only if not in PR comment mode)
+        print_report_summary(&report);
+    }
 
     // Exit with error code if there are errors
     if report.has_errors() {
@@ -770,20 +824,539 @@ fn print_drift_summary(report: &Report, checked_models: usize, models_with_drift
     println!("{}", "=".repeat(60).bright_blue());
 }
 
-/// Init contracts command - generate contracts from current schemas
-fn init_contracts_command(_config: &Config, models: &[String], verbose: bool) -> Result<()> {
+/// Init command - initialize SchemaRefly in a dbt project
+fn init_command(
+    path: Option<&PathBuf>,
+    dialect: &str,
+    skip_workflow: bool,
+    force: bool,
+    verbose: bool,
+) -> Result<()> {
+    let project_path = path.map(|p| p.clone()).unwrap_or_else(|| PathBuf::from("."));
+
     if verbose {
-        eprintln!("{}", "Initializing contracts...".cyan());
+        eprintln!("{} {}...", "Initializing SchemaRefly in".cyan(), project_path.display());
     }
 
-    println!("{}", "Contract initialization not yet implemented (Phase 4)".yellow());
-    if !models.is_empty() {
-        println!("Models: {}", models.join(", "));
-    } else {
-        println!("All models");
+    // Detect dbt project
+    let dbt_project_path = project_path.join("dbt_project.yml");
+    if !dbt_project_path.exists() {
+        return Err(anyhow::anyhow!(
+            "No dbt_project.yml found at {}. Please run this command from a dbt project root.",
+            project_path.display()
+        ));
     }
+
+    println!("{}", "Detected dbt project".green());
+
+    // Validate dialect
+    let dialect_enum = match dialect.to_lowercase().as_str() {
+        "bigquery" => DialectConfig::BigQuery,
+        "snowflake" => DialectConfig::Snowflake,
+        "postgres" | "postgresql" => DialectConfig::Postgres,
+        "ansi" => DialectConfig::Ansi,
+        _ => {
+            return Err(anyhow::anyhow!(
+                "Unsupported dialect '{}'. Supported: bigquery, snowflake, postgres, ansi",
+                dialect
+            ));
+        }
+    };
+
+    // Create schemarefly.toml
+    let config_path = project_path.join("schemarefly.toml");
+    if config_path.exists() && !force {
+        println!("{} schemarefly.toml already exists (use --force to overwrite)", "Skipping:".yellow());
+    } else {
+        let config_content = generate_config_template(dialect_enum);
+        std::fs::write(&config_path, config_content)?;
+        println!("{} schemarefly.toml", "Created:".green());
+    }
+
+    // Create GitHub workflow (unless --skip-workflow)
+    if !skip_workflow {
+        let workflow_dir = project_path.join(".github").join("workflows");
+        let workflow_path = workflow_dir.join("schemarefly.yml");
+
+        if workflow_path.exists() && !force {
+            println!("{} .github/workflows/schemarefly.yml already exists (use --force to overwrite)", "Skipping:".yellow());
+        } else {
+            std::fs::create_dir_all(&workflow_dir)?;
+            let workflow_content = generate_workflow_template();
+            std::fs::write(&workflow_path, workflow_content)?;
+            println!("{} .github/workflows/schemarefly.yml", "Created:".green());
+        }
+    }
+
+    // Print next steps
+    println!();
+    println!("{}", "=".repeat(60).bright_blue());
+    println!("{}", "SchemaRefly initialized successfully!".bold().green());
+    println!("{}", "=".repeat(60).bright_blue());
+    println!();
+    println!("{}", "Next steps:".bold());
+    println!("  1. Run {} to compile your dbt project", "dbt compile".cyan());
+    println!("  2. Run {} to check contracts", "schemarefly check".cyan());
+    println!("  3. (Optional) Run {} to generate contract stubs", "schemarefly init-contracts".cyan());
+    println!();
+    println!("{}", "For CI integration:".bold());
+    println!("  The generated workflow will run schema checks on every PR.");
+    println!("  Commit .github/workflows/schemarefly.yml to enable.");
+    println!();
 
     Ok(())
+}
+
+/// Generate schemarefly.toml template
+fn generate_config_template(dialect: DialectConfig) -> String {
+    let dialect_str = match dialect {
+        DialectConfig::BigQuery => "bigquery",
+        DialectConfig::Snowflake => "snowflake",
+        DialectConfig::Postgres => "postgres",
+        DialectConfig::Ansi => "ansi",
+    };
+
+    format!(r#"# SchemaRefly Configuration
+# See https://github.com/owner/schemarefly for documentation
+
+# SQL dialect for your dbt project
+dialect = "{dialect_str}"
+
+# Severity overrides for specific diagnostic codes
+# Uncomment to change default severities
+[severity.overrides]
+# CONTRACT_EXTRA_COLUMN = "warn"
+# SQL_SELECT_STAR_UNEXPANDABLE = "info"
+
+# Allowlist rules (glob patterns)
+[allowlist]
+# Allow type widening for specific models
+allow_widening = [
+    # "staging.*"
+]
+
+# Allow extra columns for specific models
+allow_extra_columns = [
+    # "staging.*"
+]
+
+# Skip checks entirely for specific models
+skip_models = [
+    # "temp_*",
+    # "test_*"
+]
+
+# Warehouse connection (for drift detection)
+# Uncomment and configure for your warehouse
+# [warehouse]
+# type = "{dialect_str}"
+#
+# [warehouse.settings]
+# # BigQuery settings
+# # project_id = "your-project"
+# # credentials = "path/to/credentials.json"  # Or use ADC (Application Default Credentials)
+#
+# # Snowflake settings
+# # account = "your-account"
+# # username = "your-username"
+# # password = "${{SNOWFLAKE_PASSWORD}}"  # Use environment variable
+# # warehouse = "your-warehouse"
+# # role = "your-role"
+"#)
+}
+
+/// Generate GitHub workflow template
+fn generate_workflow_template() -> String {
+    r#"# SchemaRefly - Schema Contract Verification
+# This workflow validates dbt schema contracts on every PR
+
+name: Schema Contracts
+
+on:
+  pull_request:
+    branches: [main, master, develop]
+    paths:
+      - 'models/**'
+      - 'dbt_project.yml'
+      - 'schemarefly.toml'
+  push:
+    branches: [main, master]
+
+env:
+  DBT_PROFILES_DIR: ${{ github.workspace }}
+
+jobs:
+  schema-check:
+    name: Check Schema Contracts
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Needed for state comparison
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dbt
+        run: pip install dbt-core dbt-bigquery  # Adjust for your adapter
+
+      - name: Install SchemaRefly
+        run: |
+          # Download latest release
+          curl -fsSL https://github.com/owner/schemarefly/releases/latest/download/schemarefly-x86_64-unknown-linux-gnu.tar.gz | tar -xz
+          sudo mv schemarefly-*/schemarefly /usr/local/bin/
+
+      - name: Compile dbt project
+        run: dbt compile
+
+      # For PRs: Compare against main branch (Slim CI)
+      - name: Get production state
+        if: github.event_name == 'pull_request'
+        run: |
+          git checkout origin/${{ github.base_ref }} -- target/manifest.json || true
+          if [ -f target/manifest.json ]; then
+            mv target/manifest.json prod-manifest.json
+            git checkout ${{ github.sha }} -- target/manifest.json
+            dbt compile  # Recompile current branch
+          fi
+
+      - name: Check contracts (PR - Slim CI)
+        if: github.event_name == 'pull_request' && hashFiles('prod-manifest.json') != ''
+        run: |
+          schemarefly check \
+            --state prod-manifest.json \
+            --modified-only \
+            --pr-comment \
+            > pr-comment.md
+
+      - name: Check contracts (Full)
+        if: github.event_name != 'pull_request' || hashFiles('prod-manifest.json') == ''
+        run: schemarefly check --pr-comment > pr-comment.md
+
+      - name: Comment on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const comment = fs.readFileSync('pr-comment.md', 'utf8');
+
+            // Find existing comment
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+
+            const botComment = comments.find(c =>
+              c.user.type === 'Bot' &&
+              c.body.includes('<!-- schemarefly-report -->')
+            );
+
+            if (botComment) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: botComment.id,
+                body: comment
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body: comment
+              });
+            }
+"#.to_string()
+}
+
+/// Init contracts command - generate contracts from current schemas
+fn init_contracts_command(
+    _config: &Config,
+    models: &[String],
+    output_dir: &PathBuf,
+    manifest_path: &PathBuf,
+    catalog_path: Option<&PathBuf>,
+    force: bool,
+    enforced_only: bool,
+    verbose: bool,
+) -> Result<()> {
+    if verbose {
+        eprintln!("{}", "Generating contract stubs...".cyan());
+    }
+
+    // Load manifest
+    if !manifest_path.exists() {
+        return Err(anyhow::anyhow!(
+            "Manifest not found at {}. Run 'dbt compile' first.",
+            manifest_path.display()
+        ));
+    }
+
+    let manifest = Manifest::from_file(manifest_path)
+        .map_err(|e| anyhow::anyhow!("Failed to load manifest: {}", e))?;
+
+    if verbose {
+        eprintln!("{} {}", "Loaded manifest from:".cyan(), manifest_path.display());
+    }
+
+    // Load catalog if provided (for better type inference)
+    let catalog_data: Option<serde_json::Value> = if let Some(cat_path) = catalog_path {
+        if cat_path.exists() {
+            let content = std::fs::read_to_string(cat_path)?;
+            let parsed: serde_json::Value = serde_json::from_str(&content)?;
+            if verbose {
+                eprintln!("{} {}", "Loaded catalog from:".cyan(), cat_path.display());
+            }
+            Some(parsed)
+        } else {
+            if verbose {
+                eprintln!("{} {} (will use SQL inference)", "Catalog not found:".yellow(), cat_path.display());
+            }
+            None
+        }
+    } else {
+        None
+    };
+
+    // Create output directory
+    std::fs::create_dir_all(output_dir)?;
+
+    // Filter models to process
+    let all_models = manifest.models();
+    let models_to_process: Vec<_> = all_models
+        .iter()
+        .filter(|(node_id, node)| {
+            // Filter by model names if provided
+            if !models.is_empty() {
+                let matches = models.iter().any(|m| {
+                    node.name == *m || node_id.contains(m)
+                });
+                if !matches {
+                    return false;
+                }
+            }
+
+            // Filter by enforced_only
+            if enforced_only {
+                if let Some(contract) = &node.config.contract {
+                    return contract.enforced;
+                }
+                return false;
+            }
+
+            true
+        })
+        .collect();
+
+    if models_to_process.is_empty() {
+        println!("{}", "No models found matching the criteria.".yellow());
+        return Ok(());
+    }
+
+    println!("{} {} models to generate contracts for", "Found:".green(), models_to_process.len());
+
+    let mut generated = 0;
+    let mut skipped = 0;
+
+    for (node_id, node) in models_to_process {
+        let contract_file = output_dir.join(format!("{}.yml", node.name));
+
+        if contract_file.exists() && !force {
+            if verbose {
+                eprintln!("  {} {} (exists)", "Skipping:".yellow(), node.name);
+            }
+            skipped += 1;
+            continue;
+        }
+
+        // Generate contract YAML
+        let contract_yaml = generate_contract_yaml(node_id, node, &catalog_data, &manifest)?;
+
+        // Write to file
+        std::fs::write(&contract_file, contract_yaml)?;
+
+        if verbose {
+            eprintln!("  {} {}", "Generated:".green(), contract_file.display());
+        }
+
+        generated += 1;
+    }
+
+    // Print summary
+    println!();
+    println!("{}", "=".repeat(60).bright_blue());
+    println!("{}", "Contract Generation Complete".bold().green());
+    println!("{}", "=".repeat(60).bright_blue());
+    println!();
+    println!("Generated: {} contracts", generated);
+    println!("Skipped:   {} (already exist)", skipped);
+    println!();
+    println!("{}", "Next steps:".bold());
+    println!("  1. Review generated contracts in {}/", output_dir.display());
+    println!("  2. Copy relevant sections to your dbt schema.yml files");
+    println!("  3. Run {} to validate", "schemarefly check".cyan());
+    println!();
+
+    Ok(())
+}
+
+/// Generate contract YAML for a model
+fn generate_contract_yaml(
+    node_id: &str,
+    node: &schemarefly_dbt::ManifestNode,
+    catalog_data: &Option<serde_json::Value>,
+    manifest: &Manifest,
+) -> Result<String> {
+    let mut yaml = String::new();
+
+    yaml.push_str(&format!("# Generated contract for {}\n", node.name));
+    yaml.push_str(&format!("# Model: {}\n", node_id));
+    yaml.push_str(&format!("# Path: {}\n", node.original_file_path));
+    yaml.push_str("\n");
+    yaml.push_str("# Copy this to your schema.yml file under the model definition\n");
+    yaml.push_str("# See: https://docs.getdbt.com/docs/collaborate/govern/model-contracts\n");
+    yaml.push_str("\n");
+
+    yaml.push_str(&format!("- name: {}\n", node.name));
+    yaml.push_str("  config:\n");
+    yaml.push_str("    contract:\n");
+    yaml.push_str("      enforced: true\n");
+    yaml.push_str("  columns:\n");
+
+    // Try to get columns from catalog first
+    let columns = get_columns_for_model(node_id, node, catalog_data, manifest);
+
+    for (col_name, col_type, description) in columns {
+        yaml.push_str(&format!("    - name: {}\n", col_name));
+        yaml.push_str(&format!("      data_type: {}\n", col_type));
+        if let Some(desc) = description {
+            yaml.push_str(&format!("      description: \"{}\"\n", desc));
+        }
+    }
+
+    Ok(yaml)
+}
+
+/// Get columns for a model from catalog or SQL inference
+fn get_columns_for_model(
+    node_id: &str,
+    node: &schemarefly_dbt::ManifestNode,
+    catalog_data: &Option<serde_json::Value>,
+    manifest: &Manifest,
+) -> Vec<(String, String, Option<String>)> {
+    let mut columns = Vec::new();
+
+    // Try catalog first
+    if let Some(catalog) = catalog_data {
+        if let Some(nodes) = catalog.get("nodes") {
+            if let Some(cat_node) = nodes.get(node_id) {
+                if let Some(cat_columns) = cat_node.get("columns") {
+                    if let Some(cols_obj) = cat_columns.as_object() {
+                        for (name, col_info) in cols_obj {
+                            let col_type = col_info.get("type")
+                                .and_then(|t| t.as_str())
+                                .unwrap_or("STRING")
+                                .to_string();
+                            let description = col_info.get("description")
+                                .and_then(|d| d.as_str())
+                                .map(|s| s.to_string());
+                            columns.push((name.clone(), col_type, description));
+                        }
+                        return columns;
+                    }
+                }
+            }
+        }
+    }
+
+    // Fall back to existing columns in manifest
+    if !node.columns.is_empty() {
+        for (name, col) in &node.columns {
+            let col_type = col.data_type.clone().unwrap_or_else(|| "STRING".to_string());
+            let description = if col.description.is_empty() {
+                None
+            } else {
+                Some(col.description.clone())
+            };
+            columns.push((name.clone(), col_type, description));
+        }
+        if !columns.is_empty() {
+            return columns;
+        }
+    }
+
+    // Fall back to SQL inference
+    let sql_path = Path::new(&node.original_file_path);
+    if sql_path.exists() {
+        if let Ok(sql_content) = std::fs::read_to_string(sql_path) {
+            let (preprocessed, _) = DbtFunctionExtractor::preprocess(&sql_content, Some(manifest));
+
+            // Simple column extraction from SELECT statement
+            if let Some(inferred) = infer_columns_from_sql(&preprocessed) {
+                return inferred;
+            }
+        }
+    }
+
+    // Default: return placeholder columns
+    vec![
+        ("id".to_string(), "INT64".to_string(), Some("Primary key".to_string())),
+        ("created_at".to_string(), "TIMESTAMP".to_string(), Some("Creation timestamp".to_string())),
+    ]
+}
+
+/// Simple SQL column inference from SELECT statement
+fn infer_columns_from_sql(sql: &str) -> Option<Vec<(String, String, Option<String>)>> {
+    // Very basic: extract column names from the first SELECT
+    // This is a simplified version - the full inference is in schemarefly-sql
+
+    let sql_upper = sql.to_uppercase();
+    let select_idx = sql_upper.find("SELECT")?;
+    let from_idx = sql_upper.find(" FROM ")?;
+
+    if from_idx <= select_idx {
+        return None;
+    }
+
+    let select_clause = &sql[select_idx + 6..from_idx];
+    let columns: Vec<(String, String, Option<String>)> = select_clause
+        .split(',')
+        .filter_map(|col| {
+            let col = col.trim();
+            if col.is_empty() || col == "*" {
+                return None;
+            }
+
+            // Handle "expr AS alias" or just "column_name"
+            let name = if let Some(as_idx) = col.to_uppercase().rfind(" AS ") {
+                col[as_idx + 4..].trim().to_string()
+            } else {
+                // Get the last part after any dots
+                col.split('.').last()?.trim().to_string()
+            };
+
+            // Clean up the name
+            let name = name.trim_matches(|c| c == '`' || c == '"' || c == '\'').to_string();
+
+            if name.is_empty() {
+                return None;
+            }
+
+            Some((name, "STRING".to_string(), None))
+        })
+        .collect();
+
+    if columns.is_empty() {
+        None
+    } else {
+        Some(columns)
+    }
 }
 
 /// Print report summary to stdout
@@ -957,6 +1530,118 @@ fn generate_markdown_report(report: &Report, state_comparison: Option<&StateComp
             }
         }
     }
+
+    md
+}
+
+/// Generate PR comment markdown (optimized for GitHub PRs)
+/// Includes status badge, collapsible details, and concise summary
+fn generate_pr_comment(report: &Report, state_comparison: Option<&StateComparisonResult>) -> String {
+    let mut md = String::new();
+
+    // Hidden marker for finding/updating the comment
+    md.push_str("<!-- schemarefly-report -->\n\n");
+
+    // Status badge
+    let (status_emoji, status_text) = if report.summary.errors > 0 {
+        ("❌", "Schema Contract Check Failed")
+    } else if report.summary.warnings > 0 {
+        ("⚠️", "Schema Contract Check Passed with Warnings")
+    } else {
+        ("✅", "Schema Contract Check Passed")
+    };
+
+    md.push_str(&format!("## {} {}\n\n", status_emoji, status_text));
+
+    // Quick stats table
+    md.push_str("| Metric | Count |\n");
+    md.push_str("|--------|-------|\n");
+    md.push_str(&format!("| Errors | {} |\n", report.summary.errors));
+    md.push_str(&format!("| Warnings | {} |\n", report.summary.warnings));
+    md.push_str(&format!("| Info | {} |\n", report.summary.info));
+
+    // Add Slim CI metrics if available
+    if let Some(comparison) = state_comparison {
+        md.push_str(&format!("| Modified models | {} |\n", comparison.modified_models.len()));
+        md.push_str(&format!("| Blast radius | {} |\n", comparison.total_blast_radius));
+    }
+    md.push_str("\n");
+
+    // Show errors prominently (not collapsed)
+    if report.summary.errors > 0 {
+        md.push_str("### Errors\n\n");
+        for diag in &report.diagnostics {
+            if diag.severity == schemarefly_core::Severity::Error {
+                md.push_str(&format!("- **{}**: {}\n", diag.code, diag.message));
+                if let Some(loc) = &diag.location {
+                    md.push_str(&format!("  - 📍 `{}`", loc.file));
+                    if let Some(line) = loc.line {
+                        md.push_str(&format!(":{}", line));
+                    }
+                    md.push_str("\n");
+                }
+            }
+        }
+        md.push_str("\n");
+    }
+
+    // Collapsible section for warnings
+    if report.summary.warnings > 0 {
+        md.push_str("<details>\n");
+        md.push_str("<summary>⚠️ Warnings (click to expand)</summary>\n\n");
+        for diag in &report.diagnostics {
+            if diag.severity == schemarefly_core::Severity::Warn {
+                md.push_str(&format!("- **{}**: {}\n", diag.code, diag.message));
+                if let Some(loc) = &diag.location {
+                    md.push_str(&format!("  - 📍 `{}`", loc.file));
+                    if let Some(line) = loc.line {
+                        md.push_str(&format!(":{}", line));
+                    }
+                    md.push_str("\n");
+                }
+            }
+        }
+        md.push_str("\n</details>\n\n");
+    }
+
+    // Collapsible section for Slim CI details
+    if let Some(comparison) = state_comparison {
+        if !comparison.modified_models.is_empty() {
+            md.push_str("<details>\n");
+            md.push_str("<summary>📊 Modified Models & Impact (click to expand)</summary>\n\n");
+
+            md.push_str("| Model | Change Type | Downstream Impact |\n");
+            md.push_str("|-------|-------------|-------------------|\n");
+            for modified in &comparison.modified_models {
+                let reasons: Vec<String> = modified.reasons.iter().map(|r| r.to_string()).collect();
+                md.push_str(&format!(
+                    "| `{}` | {} | {} models |\n",
+                    modified.name,
+                    reasons.join(", "),
+                    modified.downstream_count
+                ));
+            }
+
+            md.push_str("\n</details>\n\n");
+        }
+
+        // Show deleted models as a warning
+        if !comparison.deleted_models.is_empty() {
+            md.push_str("### ⚠️ Deleted Models\n\n");
+            md.push_str("The following models were removed:\n\n");
+            for deleted in &comparison.deleted_models {
+                md.push_str(&format!("- `{}`\n", deleted));
+            }
+            md.push_str("\n");
+        }
+    }
+
+    // Footer with timestamp
+    md.push_str("---\n\n");
+    md.push_str(&format!(
+        "<sub>Generated by [SchemaRefly](https://github.com/owner/schemarefly) at {}</sub>\n",
+        report.timestamp
+    ));
 
     md
 }
