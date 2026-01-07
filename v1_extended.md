@@ -142,25 +142,64 @@ schemarefly check --state prod/manifest.json --modified-only -v -m report.md
 
 ---
 
-## **3\) Release like a serious compiler toolchain (1–2 weeks)** 🔄 **IN PROGRESS**
+## **3\) Release like a serious compiler toolchain (1–2 weeks)** ✅ **COMPLETED**
 
 If you want "industry standard," your releases must be **trustable** and **easy to install**.
 
-**Do this next**
+**Implemented (January 2026):**
 
 * ✅ **GitHub Actions CI pipeline** - Multi-platform builds for macOS/Linux (`.github/workflows/ci.yml`)
 
-* ⬜ Publish signed binaries for macOS/Linux/Windows and a predictable install story.
+* ✅ **Signed binary releases** for Linux/macOS/Windows (`.github/workflows/release.yml`)
+  - Linux: x86_64 (GNU), x86_64 (MUSL/static), ARM64
+  - macOS: x86_64 (Intel), ARM64 (Apple Silicon)
+  - Windows: x86_64
 
-* ⬜ Add **artifact attestations** in GitHub Actions (supply-chain trust), so users can verify provenance. [GitHub Docs+1](https://docs.github.com/en/actions/security-for-github-actions/using-artifact-attestations?utm_source=chatgpt.com)
+* ✅ **Artifact attestations** for supply-chain trust
+  - GitHub artifact attestations via `actions/attest-build-provenance@v2`
+  - SHA-256 checksums for all release artifacts
+  - Verification commands documented in release notes
 
-* ⬜ Add a small "stability contract":
+* ✅ **Stability contract** documented in [STABILITY.md](STABILITY.md):
+  - Report schema versioning (v1.0, semver rules for breaking changes)
+  - Diagnostic code immutability (never rename/remove, add new codes only)
+  - Deprecation policy (2 minor version warning period)
+  - CLI exit codes (stable, documented)
+  - Configuration file stability
 
-  * report.json schema versioning (no breaking changes in minor versions)
+**Release Workflow Features:**
 
-  * diagnostic code immutability (already done)
+```yaml
+# Trigger: Push tag like v0.1.0 or v0.1.0-beta.1
+on:
+  push:
+    tags: ['v[0-9]+.[0-9]+.[0-9]+*']
+```
 
-  * deprecation policy
+- **Version validation**: Ensures Cargo.toml version matches release tag
+- **Full test suite**: Runs tests and clippy before building
+- **Multi-platform builds**: 6 target platforms with cross-compilation
+- **Artifact attestations**: Supply-chain provenance for all binaries
+- **Automated release notes**: Installation instructions, verification commands
+- **Pre-release support**: Tags like `v0.1.0-beta.1` marked as pre-release
+
+**Installation (after release):**
+
+```bash
+# Linux x86_64
+curl -fsSL https://github.com/owner/schemarefly/releases/download/v0.1.0/schemarefly-0.1.0-x86_64-unknown-linux-gnu.tar.gz | tar -xz
+
+# macOS Apple Silicon
+curl -fsSL https://github.com/owner/schemarefly/releases/download/v0.1.0/schemarefly-0.1.0-aarch64-apple-darwin.tar.gz | tar -xz
+
+# Verify attestation
+gh attestation verify schemarefly-*.tar.gz --repo owner/schemarefly
+```
+
+**Files Added:**
+- `.github/workflows/release.yml` - Release workflow with attestations
+- `STABILITY.md` - Complete stability contract documentation
+- `CHANGELOG.md` - Release history tracking
 
 ---
 

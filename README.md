@@ -22,15 +22,48 @@ SchemaRefly is a Rust-based static analysis tool that validates dbt schema contr
 - **Phase 1**: dbt ingestion + DAG + contracts + impact analysis
 - **Phase 2**: SQL parsing layer (multi-dialect, Jinja2 preprocessing)
 - **Slim CI**: State comparison + modified-only checks + blast radius
+- **Phase 3**: Release toolchain (signed binaries, attestations, stability contract)
 
 ### In Progress 🔄
-- **Phase 3**: Release toolchain (signed binaries, attestations)
+- **Phase 4**: Frictionless adoption (init commands, PR comment mode)
 
 See [v1_extended.md](v1_extended.md) for the detailed roadmap.
 
 ## Quick Start
 
 ### Installation
+
+#### Pre-built Binaries (Recommended)
+
+Download the latest release from [GitHub Releases](https://github.com/owner/schemarefly/releases):
+
+```bash
+# Linux x86_64
+curl -fsSL https://github.com/owner/schemarefly/releases/latest/download/schemarefly-x86_64-unknown-linux-gnu.tar.gz | tar -xz
+
+# macOS Apple Silicon
+curl -fsSL https://github.com/owner/schemarefly/releases/latest/download/schemarefly-aarch64-apple-darwin.tar.gz | tar -xz
+
+# macOS Intel
+curl -fsSL https://github.com/owner/schemarefly/releases/latest/download/schemarefly-x86_64-apple-darwin.tar.gz | tar -xz
+
+# Move to PATH
+sudo mv schemarefly-*/schemarefly /usr/local/bin/
+```
+
+#### Verify Download
+
+All binaries include SHA-256 checksums and GitHub artifact attestations:
+
+```bash
+# Verify checksum
+shasum -a 256 -c schemarefly-*.sha256
+
+# Verify attestation (requires GitHub CLI)
+gh attestation verify schemarefly-*.tar.gz --repo owner/schemarefly
+```
+
+#### Build from Source
 
 ```bash
 # Build from source
@@ -231,14 +264,25 @@ cargo run --bin schemarefly -- check --verbose
 - ✅ **Phase 0**: Standards + interfaces (COMPLETED)
 - ✅ **Phase 1**: dbt ingestion + DAG + contracts (COMPLETED)
 - ✅ **Phase 2**: SQL parsing layer (COMPLETED)
-- 🚧 **Phase 3**: SQL schema inference MVP
-- 🚧 **Phase 4**: Contract diff engine + CI gate
+- ✅ **Slim CI**: State comparison + modified-only checks (COMPLETED)
+- ✅ **Phase 3**: Release toolchain (COMPLETED)
+- 🚧 **Phase 4**: Frictionless adoption (init commands, PR mode)
 - 🚧 **Phase 5**: Warehouse drift mode
 - 🚧 **Phase 6**: Incremental performance hardening
-- 🚧 **Phase 7**: LSP
-- 🚧 **Phase 8**: Industry standard hardening
+- 🚧 **Phase 7**: LSP + VS Code extension
 
-See [SchemaRefly Engineering Doc.md](SchemaRefly%20Engineering%20Doc.md) for details.
+See [v1_extended.md](v1_extended.md) for detailed roadmap.
+
+## Stability
+
+SchemaRefly follows semantic versioning with documented stability guarantees:
+
+- **Report schema**: Versioned (v1.0), backward-compatible
+- **Diagnostic codes**: Immutable, never renamed or removed
+- **CLI exit codes**: Stable and documented
+- **Configuration**: Forward-compatible
+
+See [STABILITY.md](STABILITY.md) for the complete stability contract.
 
 ## Why Rust?
 
