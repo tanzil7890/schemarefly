@@ -24,9 +24,11 @@ SchemaRefly is a Rust-based static analysis tool that validates dbt schema contr
 - **Slim CI**: State comparison + modified-only checks + blast radius
 - **Phase 3**: Release toolchain (signed binaries, attestations, stability contract)
 - **Phase 4**: Frictionless adoption (init, init-contracts, PR comment mode)
+- **Phase 5**: VS Code extension packaging
 
 ### In Progress 🔄
-- **Phase 5**: VS Code extension packaging
+- **Phase 6**: Warehouse drift mode
+- **Phase 7**: Incremental performance hardening
 
 See [v1_extended.md](v1_extended.md) for the detailed roadmap.
 
@@ -124,12 +126,15 @@ skip_models = [
 SchemaRefly/
 ├── crates/
 │   ├── schemarefly-core/      # Core domain model (types, diagnostics, config)
-│   ├── schemarefly-dbt/       # dbt artifact parsing (Phase 1)
-│   ├── schemarefly-sql/       # SQL parsing & inference (Phase 2-3)
-│   ├── schemarefly-catalog/   # Warehouse metadata (Phase 5)
-│   ├── schemarefly-engine/    # Salsa incremental engine (Phase 6)
+│   ├── schemarefly-dbt/       # dbt artifact parsing
+│   ├── schemarefly-sql/       # SQL parsing & inference
+│   ├── schemarefly-catalog/   # Warehouse metadata adapters
+│   ├── schemarefly-engine/    # State comparison & drift detection
+│   ├── schemarefly-incremental/ # Salsa incremental engine
 │   ├── schemarefly-cli/       # CLI application
-│   └── schemarefly-lsp/       # LSP server (Phase 7)
+│   └── schemarefly-lsp/       # LSP server
+├── editors/
+│   └── vscode/               # VS Code extension
 ├── fixtures/                  # Test fixtures
 │   └── mini-dbt-project/     # Minimal dbt project for testing
 ├── schemarefly.toml          # Example configuration
@@ -267,16 +272,29 @@ Detect schema drift from warehouse.
 schemarefly drift [--output drift-report.json]
 ```
 
-**Status**: 🚧 Planned for Phase 5
+**Status**: 🚧 Planned for Phase 6
 
-### init-contracts
-Generate contracts from current schemas.
+## VS Code Extension
+
+Real-time schema contract verification in your editor.
+
+### Features
+- **Diagnostics on save** - Contract violations shown inline
+- **Hover for schema** - See inferred column types
+- **Go-to-definition** - Jump to contract definitions
+- **Offline mode** - Works without warehouse connection
+
+### Installation
 
 ```bash
-schemarefly init-contracts [models...]
+# Install from VS Code Marketplace
+code --install-extension schemarefly.schemarefly
+
+# Or install from VSIX
+code --install-extension schemarefly-0.1.0.vsix
 ```
 
-**Status**: 🚧 Planned for Phase 4
+The extension requires the `schemarefly-lsp` binary. See [editors/vscode/README.md](editors/vscode/README.md) for details.
 
 ## Development
 
@@ -307,7 +325,7 @@ cargo run --bin schemarefly -- check --verbose
 - ✅ **Slim CI**: State comparison + modified-only checks (COMPLETED)
 - ✅ **Phase 3**: Release toolchain (COMPLETED)
 - ✅ **Phase 4**: Frictionless adoption (COMPLETED)
-- 🚧 **Phase 5**: VS Code extension
+- ✅ **Phase 5**: VS Code extension (COMPLETED)
 - 🚧 **Phase 6**: Warehouse drift mode
 - 🚧 **Phase 7**: Incremental performance hardening
 

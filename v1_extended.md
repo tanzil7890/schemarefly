@@ -257,21 +257,75 @@ schemarefly check --state prod/manifest.json --modified-only --pr-comment > pr-c
 
 ---
 
-## **5\) VS Code extension packaging (if you want dev-love)**
+## **5\) VS Code extension packaging (if you want dev-love)** ✅ **COMPLETED**
 
 You have the LSP; now distribute it like a real editor feature.
 
-**Do this next**
+**Implemented (January 2026):**
 
-* Ship a VS Code extension that:
+* ✅ **VS Code Extension** (`editors/vscode/`) - Full extension package:
+  - TypeScript extension with LSP client
+  - Auto-detects dbt project root (looks for `dbt_project.yml`)
+  - Runs diagnostics on save and on type
+  - Hover provider shows inferred schema
+  - Go-to-definition support
+  - Status bar indicator
+  - Configuration options (`schemarefly.serverPath`, trace levels, etc.)
 
-  * downloads/uses your LSP binary
+* ✅ **LSP Binary Discovery** - Extension finds the server automatically:
+  - Bundled binary in extension
+  - Search in PATH
+  - Common install locations (cargo bin, /usr/local/bin)
+  - Configurable via settings
 
-  * auto-detects dbt project root
+* ✅ **Offline Mode** - Works without warehouse connection:
+  - Uses `target/manifest.json` from dbt compile
+  - Schema inference from SQL AST
+  - No credentials required for basic validation
 
-  * runs diagnostics on save
+* ✅ **GitHub Actions Workflow** (`.github/workflows/vscode-extension.yml`):
+  - Builds extension on push/PR
+  - Multi-platform LSP binary builds
+  - Bundle extension with binaries
+  - Publish to VS Code Marketplace and Open VSX
 
-* Keep “offline mode” working (no warehouse needed).
+**Extension Structure:**
+```
+editors/vscode/
+├── package.json          # Extension manifest
+├── src/
+│   └── extension.ts      # Extension entry point with LSP client
+├── language-configuration.json  # Jinja SQL language config
+├── .vscode/             # VS Code development settings
+├── tsconfig.json        # TypeScript config
+└── README.md            # Extension documentation
+```
 
-tower-lsp is a solid base for this server side; your real work now is extension packaging \+ UX polish.
+**Commands:**
+- `SchemaRefly: Restart Language Server` - Restart the LSP
+- `SchemaRefly: Check Contracts` - Run full check in terminal
+- `SchemaRefly: Show Output` - View extension logs
+
+**Configuration:**
+```json
+{
+  "schemarefly.serverPath": "",        // Custom server path
+  "schemarefly.trace.server": "off",   // LSP trace level
+  "schemarefly.diagnostics.onSave": true,
+  "schemarefly.diagnostics.onType": true
+}
+```
+
+**Installation:**
+```bash
+# From VS Code Marketplace
+code --install-extension schemarefly.schemarefly
+
+# From VSIX
+code --install-extension schemarefly-0.1.0.vsix
+```
+
+**Files Added:**
+- `editors/vscode/` - Complete VS Code extension
+- `.github/workflows/vscode-extension.yml` - CI/CD for extension
 

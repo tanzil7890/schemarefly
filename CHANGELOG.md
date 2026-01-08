@@ -8,6 +8,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+
+#### VS Code Extension (Phase 5)
+- **VS Code Extension** (`editors/vscode/`) with full LSP client integration
+- Auto-detection of dbt project root (looks for `dbt_project.yml`)
+- Real-time diagnostics on save and on type
+- Hover provider showing inferred schema
+- Go-to-definition support for contracts
+- Status bar indicator for server status
+- Configurable settings (`serverPath`, `trace.server`, `diagnostics.onSave`, etc.)
+- GitHub Actions workflow for extension CI/CD (`.github/workflows/vscode-extension.yml`)
+
+#### Frictionless Adoption (Phase 4)
+- `schemarefly init` command to initialize SchemaRefly in dbt projects
+- `schemarefly init-contracts` command to generate contract YAML stubs
+- `--pr-comment` flag for GitHub-optimized markdown output
+- Auto-generated GitHub workflow template
+
+#### Release Toolchain (Phase 3)
 - Release workflow with multi-platform binaries (Linux, macOS, Windows)
 - Artifact attestations for supply-chain security
 - STABILITY.md documenting versioning and deprecation policies
@@ -76,8 +94,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 #### Commands
 - `schemarefly check`: Validate schema contracts
 - `schemarefly impact <model>`: Show downstream dependencies
+- `schemarefly init`: Initialize SchemaRefly in dbt projects
+- `schemarefly init-contracts`: Generate contract YAML stubs
 - `schemarefly drift`: Detect warehouse schema drift (planned)
-- `schemarefly init-contracts`: Generate contracts from schemas (planned)
 
 ---
 
