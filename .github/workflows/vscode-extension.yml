@@ -1,0 +1,216 @@
+# VS Code Extension CI/CD
+# Builds and publishes the SchemaRefly VS Code extension
+
+name: VS Code Extension
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'editors/vscode/**'
+      - '.github/workflows/vscode-extension.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'editors/vscode/**'
+      - '.github/workflows/vscode-extension.yml'
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: 'Publish to VS Code Marketplace'
+        required: false
+        default: 'false'
+        type: boolean
+
+defaults:
+  run:
+    working-directory: editors/vscode
+
+jobs:
+  # Build and test the extension
+  build:
+    name: Build Extension
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: editors/vscode/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci || npm install
+
+      - name: Lint
+        run: npm run lint || true  # Don't fail on lint warnings for now
+
+      - name: Compile
+        run: npm run compile
+
+      - name: Package extension
+        run: npx @vscode/vsce package --no-dependencies
+
+      - name: Upload VSIX artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: schemarefly-vscode
+          path: editors/vscode/*.vsix
+
+  # Build the LSP binary for bundling
+  build-lsp:
+    name: Build LSP Binary
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            artifact: schemarefly-lsp
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            artifact: schemarefly-lsp
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            artifact: schemarefly-lsp
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            artifact: schemarefly-lsp.exe
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-action@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Build LSP binary
+        run: cargo build --release --bin schemarefly-lsp --target ${{ matrix.target }}
+        working-directory: .
+
+      - name: Upload LSP binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: schemarefly-lsp-${{ matrix.target }}
+          path: target/${{ matrix.target }}/release/${{ matrix.artifact }}
+
+  # Create bundled extension with LSP binaries
+  bundle:
+    name: Bundle Extension
+    needs: [build, build-lsp]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.publish == 'true')
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm ci || npm install
+
+      - name: Download VSIX artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: schemarefly-vscode
+          path: editors/vscode
+
+      - name: Download LSP binaries
+        uses: actions/download-artifact@v4
+        with:
+          pattern: schemarefly-lsp-*
+          path: editors/vscode/bin
+          merge-multiple: false
+
+      - name: Organize LSP binaries
+        run: |
+          mkdir -p bin/linux-x64 bin/darwin-x64 bin/darwin-arm64 bin/win32-x64
+
+          # Move binaries to platform-specific directories
+          if [ -d "bin/schemarefly-lsp-x86_64-unknown-linux-gnu" ]; then
+            mv bin/schemarefly-lsp-x86_64-unknown-linux-gnu/* bin/linux-x64/
+          fi
+          if [ -d "bin/schemarefly-lsp-x86_64-apple-darwin" ]; then
+            mv bin/schemarefly-lsp-x86_64-apple-darwin/* bin/darwin-x64/
+          fi
+          if [ -d "bin/schemarefly-lsp-aarch64-apple-darwin" ]; then
+            mv bin/schemarefly-lsp-aarch64-apple-darwin/* bin/darwin-arm64/
+          fi
+          if [ -d "bin/schemarefly-lsp-x86_64-pc-windows-msvc" ]; then
+            mv bin/schemarefly-lsp-x86_64-pc-windows-msvc/* bin/win32-x64/
+          fi
+
+          # Make binaries executable
+          chmod +x bin/*/schemarefly-lsp 2>/dev/null || true
+
+          # Clean up empty directories
+          find bin -type d -empty -delete 2>/dev/null || true
+
+          # List final structure
+          echo "Binary structure:"
+          find bin -type f
+
+      - name: Repackage with binaries
+        run: |
+          npm run compile
+          npx @vscode/vsce package
+
+      - name: Upload bundled VSIX
+        uses: actions/upload-artifact@v4
+        with:
+          name: schemarefly-vscode-bundled
+          path: editors/vscode/*.vsix
+
+      - name: Upload to release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v1
+        with:
+          files: editors/vscode/*.vsix
+
+  # Publish to VS Code Marketplace
+  publish:
+    name: Publish to Marketplace
+    needs: [bundle]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && inputs.publish == 'true')
+    environment: vscode-marketplace
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Download bundled VSIX
+        uses: actions/download-artifact@v4
+        with:
+          name: schemarefly-vscode-bundled
+          path: editors/vscode
+
+      - name: Publish to VS Code Marketplace
+        if: env.VSCE_PAT != ''
+        run: npx @vscode/vsce publish --packagePath *.vsix
+        env:
+          VSCE_PAT: ${{ secrets.VSCE_PAT }}
+
+      - name: Publish to Open VSX
+        if: env.OVSX_PAT != ''
+        run: npx ovsx publish *.vsix
+        env:
+          OVSX_PAT: ${{ secrets.OVSX_PAT }}
