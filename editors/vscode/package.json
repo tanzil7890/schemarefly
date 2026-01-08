@@ -1,0 +1,131 @@
+{
+  "name": "schemarefly",
+  "displayName": "SchemaRefly",
+  "description": "Schema contract verification for dbt - Catch breaking changes before they break production",
+  "version": "0.1.0",
+  "publisher": "schemarefly",
+  "license": "MIT OR Apache-2.0",
+  "icon": "icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tanzil7890/schemarefly"
+  },
+  "bugs": {
+    "url": "https://github.com/tanzil7890/schemarefly/issues"
+  },
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Linters",
+    "Other"
+  ],
+  "keywords": [
+    "dbt",
+    "sql",
+    "schema",
+    "contracts",
+    "data",
+    "analytics",
+    "bigquery",
+    "snowflake",
+    "postgres"
+  ],
+  "activationEvents": [
+    "workspaceContains:dbt_project.yml",
+    "workspaceContains:**/dbt_project.yml"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "configuration": {
+      "title": "SchemaRefly",
+      "properties": {
+        "schemarefly.serverPath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the schemarefly-lsp binary. If not set, will use bundled binary or search PATH."
+        },
+        "schemarefly.trace.server": {
+          "type": "string",
+          "enum": [
+            "off",
+            "messages",
+            "verbose"
+          ],
+          "default": "off",
+          "description": "Traces the communication between VS Code and the SchemaRefly language server."
+        },
+        "schemarefly.diagnostics.onSave": {
+          "type": "boolean",
+          "default": true,
+          "description": "Run diagnostics when a file is saved."
+        },
+        "schemarefly.diagnostics.onType": {
+          "type": "boolean",
+          "default": true,
+          "description": "Run diagnostics as you type (may impact performance on large files)."
+        },
+        "schemarefly.hover.showInferredSchema": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show inferred schema on hover."
+        }
+      }
+    },
+    "commands": [
+      {
+        "command": "schemarefly.restart",
+        "title": "SchemaRefly: Restart Language Server"
+      },
+      {
+        "command": "schemarefly.check",
+        "title": "SchemaRefly: Check Contracts"
+      },
+      {
+        "command": "schemarefly.showOutput",
+        "title": "SchemaRefly: Show Output"
+      }
+    ],
+    "languages": [
+      {
+        "id": "sql",
+        "extensions": [
+          ".sql"
+        ]
+      },
+      {
+        "id": "jinja-sql",
+        "aliases": [
+          "Jinja SQL",
+          "dbt SQL"
+        ],
+        "extensions": [
+          ".sql"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "lint": "eslint src --ext ts",
+    "test": "node ./out/test/runTest.js",
+    "package": "vsce package",
+    "publish": "vsce publish"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "@types/vscode": "^1.75.0",
+    "@typescript-eslint/eslint-plugin": "^6.13.0",
+    "@typescript-eslint/parser": "^6.13.0",
+    "@vscode/vsce": "^2.22.0",
+    "eslint": "^8.55.0",
+    "typescript": "^5.3.2"
+  }
+}
