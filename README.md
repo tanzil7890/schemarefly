@@ -13,24 +13,6 @@ SchemaRefly is a Rust-based static analysis tool that validates dbt schema contr
 - **Jinja2 Support** - Full dbt template preprocessing (ref, source, var, config)
 - **100% Compatibility** - Tested on 140+ real dbt models across 13 projects
 
-## Status
-
-🎯 **Production Ready** - All core features implemented and tested
-
-### Completed Phases ✅
-- **Phase 0**: Standards + interfaces (diagnostic codes, report schema, config)
-- **Phase 1**: dbt ingestion + DAG + contracts + impact analysis
-- **Phase 2**: SQL parsing layer (multi-dialect, Jinja2 preprocessing)
-- **Slim CI**: State comparison + modified-only checks + blast radius
-- **Phase 3**: Release toolchain (signed binaries, attestations, stability contract)
-- **Phase 4**: Frictionless adoption (init, init-contracts, PR comment mode)
-- **Phase 5**: VS Code extension packaging
-
-### In Progress 🔄
-- **Phase 6**: Warehouse drift mode
-- **Phase 7**: Incremental performance hardening
-
-See [v1_extended.md](v1_extended.md) for the detailed roadmap.
 
 ## Quick Start
 
@@ -78,7 +60,7 @@ cargo build --release --bin schemarefly
 ### Usage
 
 ```bash
-# Run a no-op check (Phase 0)
+# Run a no-op check ()
 schemarefly check
 
 # With verbose output
@@ -211,7 +193,7 @@ schemarefly init --skip-workflow  # Skip GitHub workflow creation
 schemarefly init --force          # Overwrite existing files
 ```
 
-**Status**: ✅ Functional
+
 
 Creates `schemarefly.toml` and `.github/workflows/schemarefly.yml` with best-practice defaults.
 
@@ -228,7 +210,7 @@ schemarefly check --state prod/manifest.json --modified-only
 schemarefly check --pr-comment > pr-comment.md
 ```
 
-**Status**: ✅ Functional
+
 
 ### init-contracts
 Generate contract stubs from current schemas.
@@ -243,7 +225,6 @@ schemarefly init-contracts --catalog target/catalog.json  # Use catalog for type
 schemarefly init-contracts --enforced-only        # Only models with enforced contracts
 ```
 
-**Status**: ✅ Functional
 
 Generates YAML contract stubs ready to copy into your dbt schema.yml files.
 
@@ -259,7 +240,7 @@ schemarefly impact "source.my_project.raw.users"
 schemarefly impact users --manifest path/to/manifest.json --verbose
 ```
 
-**Status**: ✅ Functional
+
 
 Shows the complete blast radius (transitive closure) of downstream dependencies. Helps answer:
 - "What will break if I change this model?"
@@ -272,7 +253,7 @@ Detect schema drift from warehouse.
 schemarefly drift [--output drift-report.json]
 ```
 
-**Status**: 🚧 Planned for Phase 6
+
 
 ## VS Code Extension
 
@@ -317,19 +298,6 @@ cargo test
 cargo run --bin schemarefly -- check --verbose
 ```
 
-## Roadmap
-
-- ✅ **Phase 0**: Standards + interfaces (COMPLETED)
-- ✅ **Phase 1**: dbt ingestion + DAG + contracts (COMPLETED)
-- ✅ **Phase 2**: SQL parsing layer (COMPLETED)
-- ✅ **Slim CI**: State comparison + modified-only checks (COMPLETED)
-- ✅ **Phase 3**: Release toolchain (COMPLETED)
-- ✅ **Phase 4**: Frictionless adoption (COMPLETED)
-- ✅ **Phase 5**: VS Code extension (COMPLETED)
-- 🚧 **Phase 6**: Warehouse drift mode
-- 🚧 **Phase 7**: Incremental performance hardening
-
-See [v1_extended.md](v1_extended.md) for detailed roadmap.
 
 ## Stability
 
@@ -356,6 +324,6 @@ MIT OR Apache-2.0
 
 ## Contributing
 
-This project is in active development. Phase 0 is complete, and we're building towards Phase 1 (dbt ingestion).
+This project is in active development.  is complete, and we're building towards  (dbt ingestion).
 
 For questions or contributions, please open an issue or PR.
