@@ -7,7 +7,7 @@ use schemarefly_core::{Report, Config, Diagnostic, DialectConfig};
 use schemarefly_dbt::{Manifest, DependencyGraph, ContractExtractor};
 use schemarefly_engine::{DriftDetection, StateComparison, StateComparisonResult};
 use schemarefly_sql::DbtFunctionExtractor;
-use schemarefly_catalog::{WarehouseAdapter, TableIdentifier, BigQueryAdapter, SnowflakeAdapter};
+use schemarefly_catalog::{WarehouseAdapter, TableIdentifier, BigQueryAdapter, SnowflakeAdapter, SnowflakeAdapterBuilder};
 
 /// SchemaRefly - Schema contract verification for dbt
 #[derive(Parser)]
@@ -601,9 +601,9 @@ async fn drift_command(config: &Config, output: &PathBuf, verbose: bool) -> Resu
                 .ok_or_else(|| anyhow::anyhow!("BigQuery requires 'project_id' in warehouse settings"))?;
 
             if let Some(credentials) = warehouse_config.settings.get("credentials") {
-                Box::new(BigQueryAdapter::new(project_id, credentials))
+                Box::new(BigQueryAdapter::from_service_account_json(project_id, credentials).await?)
             } else {
-                Box::new(BigQueryAdapter::with_adc(project_id))
+                Box::new(BigQueryAdapter::with_adc(project_id).await?)
             }
         }
         "snowflake" => {
@@ -614,16 +614,16 @@ async fn drift_command(config: &Config, output: &PathBuf, verbose: bool) -> Resu
             let password = warehouse_config.settings.get("password")
                 .ok_or_else(|| anyhow::anyhow!("Snowflake requires 'password' in warehouse settings"))?;
 
-            let mut adapter = SnowflakeAdapter::new(account, username, password);
+            let mut builder = SnowflakeAdapterBuilder::with_password(account, username, password);
 
             if let Some(warehouse) = warehouse_config.settings.get("warehouse") {
-                adapter = adapter.with_warehouse(warehouse);
+                builder = builder.with_warehouse(warehouse);
             }
             if let Some(role) = warehouse_config.settings.get("role") {
-                adapter = adapter.with_role(role);
+                builder = builder.with_role(role);
             }
 
-            Box::new(adapter)
+            Box::new(builder.build()?)
         }
         _ => {
             return Err(anyhow::anyhow!(

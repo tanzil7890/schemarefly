@@ -14,9 +14,14 @@ tokio.workspace = true
 # BigQuery SDK (optional feature)
 gcp-bigquery-client = { workspace = true, optional = true }
 
+# Snowflake SDK (optional feature)
+snowflake-api = { workspace = true, optional = true }
+arrow-array = { version = "57", optional = true }
+arrow-schema = { version = "57", optional = true }
+
 [features]
 default = []
 bigquery = ["gcp-bigquery-client"]
-snowflake = []
+snowflake = ["snowflake-api", "arrow-array", "arrow-schema"]
 postgres = []
 all-warehouses = ["bigquery", "snowflake", "postgres"]

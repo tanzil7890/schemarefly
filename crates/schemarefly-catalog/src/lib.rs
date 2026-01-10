@@ -9,4 +9,4 @@ pub mod snowflake;
 
 pub use adapter::{WarehouseAdapter, TableIdentifier, FetchError};
 pub use bigquery::BigQueryAdapter;
-pub use snowflake::SnowflakeAdapter;
+pub use snowflake::{SnowflakeAdapter, SnowflakeAdapterBuilder};

@@ -63,6 +63,7 @@ minijinja = "2.5"
 
 # Warehouse SDKs (optional)
 gcp-bigquery-client = "0.27"
+snowflake-api = "0.14"
 
 # Internal workspace crates
 schemarefly-core = { path = "crates/schemarefly-core" }
