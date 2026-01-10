@@ -21,3 +21,10 @@ colored.workspace = true
 anyhow.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
+
+[features]
+default = []
+bigquery = ["schemarefly-catalog/bigquery"]
+snowflake = ["schemarefly-catalog/snowflake"]
+postgres = ["schemarefly-catalog/postgres"]
+all-warehouses = ["bigquery", "snowflake", "postgres"]

@@ -61,6 +61,9 @@ tokio = { version = "1.40", features = ["full"] }
 # Jinja template engine
 minijinja = "2.5"
 
+# Warehouse SDKs (optional)
+gcp-bigquery-client = "0.27"
+
 # Internal workspace crates
 schemarefly-core = { path = "crates/schemarefly-core" }
 schemarefly-dbt = { path = "crates/schemarefly-dbt" }

@@ -5,57 +5,256 @@
 //! - bigquery.tables.get
 //! - bigquery.tables.getData (for INFORMATION_SCHEMA access)
 //!
+//! ## Authentication
+//!
+//! The adapter supports multiple authentication methods:
+//! 1. Service account JSON file (explicit path)
+//! 2. Service account JSON content (inline)
+//! 3. Application Default Credentials (ADC)
+//!
+//! ## Usage
+//!
+//! ```rust,ignore
+//! // Using ADC
+//! let adapter = BigQueryAdapter::with_adc("my-project").await?;
+//!
+//! // Using service account file
+//! let adapter = BigQueryAdapter::from_service_account_file(
+//!     "my-project",
+//!     "/path/to/service-account.json"
+//! ).await?;
+//! ```
+//!
 //! Reference: https://cloud.google.com/bigquery/docs/information-schema-columns
 
 use crate::adapter::{WarehouseAdapter, TableIdentifier, FetchError};
-use schemarefly_core::{Schema, LogicalType};
+use schemarefly_core::{Schema, Column, LogicalType, Nullability};
+
+#[cfg(feature = "bigquery")]
+use gcp_bigquery_client::{Client as BigQueryClient, model::query_request::QueryRequest};
 
 /// BigQuery warehouse adapter
 pub struct BigQueryAdapter {
     /// Project ID
     project_id: String,
 
-    /// Authentication credentials (service account key JSON or ADC)
-    credentials: Option<String>,
+    /// BigQuery client (only available with bigquery feature)
+    #[cfg(feature = "bigquery")]
+    client: BigQueryClient,
+
+    /// Placeholder for when feature is disabled
+    #[cfg(not(feature = "bigquery"))]
+    _phantom: std::marker::PhantomData<()>,
 }
 
 impl BigQueryAdapter {
-    /// Create a new BigQuery adapter with explicit credentials
-    pub fn new(project_id: impl Into<String>, credentials: impl Into<String>) -> Self {
-        Self {
-            project_id: project_id.into(),
-            credentials: Some(credentials.into()),
-        }
+    /// Create a new BigQuery adapter using Application Default Credentials (ADC)
+    ///
+    /// ADC automatically detects credentials from:
+    /// - GOOGLE_APPLICATION_CREDENTIALS environment variable
+    /// - gcloud CLI default credentials
+    /// - GCE/GKE metadata service
+    #[cfg(feature = "bigquery")]
+    pub async fn with_adc(project_id: impl Into<String>) -> Result<Self, FetchError> {
+        let project_id = project_id.into();
+
+        let client = BigQueryClient::from_application_default_credentials()
+            .await
+            .map_err(|e| FetchError::AuthenticationError(format!(
+                "Failed to authenticate with ADC: {}. \
+                 Ensure GOOGLE_APPLICATION_CREDENTIALS is set or run 'gcloud auth application-default login'",
+                e
+            )))?;
+
+        Ok(Self {
+            project_id,
+            client,
+        })
     }
 
-    /// Create a new BigQuery adapter using Application Default Credentials (ADC)
-    pub fn with_adc(project_id: impl Into<String>) -> Self {
-        Self {
-            project_id: project_id.into(),
-            credentials: None,
+    /// Create adapter without bigquery feature (returns error)
+    #[cfg(not(feature = "bigquery"))]
+    pub async fn with_adc(project_id: impl Into<String>) -> Result<Self, FetchError> {
+        let _ = project_id;
+        Err(FetchError::ConfigError(
+            "BigQuery support not compiled. Rebuild with: cargo build --features bigquery".to_string()
+        ))
+    }
+
+    /// Create a new BigQuery adapter using a service account key file
+    #[cfg(feature = "bigquery")]
+    pub async fn from_service_account_file(
+        project_id: impl Into<String>,
+        key_path: impl AsRef<std::path::Path>,
+    ) -> Result<Self, FetchError> {
+        let project_id = project_id.into();
+        let key_path_str = key_path.as_ref().to_string_lossy().to_string();
+
+        let client = BigQueryClient::from_service_account_key_file(&key_path_str)
+            .await
+            .map_err(|e| FetchError::AuthenticationError(format!(
+                "Failed to read service account key file '{}': {}",
+                key_path_str, e
+            )))?;
+
+        Ok(Self {
+            project_id,
+            client,
+        })
+    }
+
+    /// Create adapter without bigquery feature (returns error)
+    #[cfg(not(feature = "bigquery"))]
+    pub async fn from_service_account_file(
+        project_id: impl Into<String>,
+        _key_path: impl AsRef<std::path::Path>,
+    ) -> Result<Self, FetchError> {
+        let _ = project_id;
+        Err(FetchError::ConfigError(
+            "BigQuery support not compiled. Rebuild with: cargo build --features bigquery".to_string()
+        ))
+    }
+
+    /// Create a new BigQuery adapter using service account JSON content
+    #[cfg(feature = "bigquery")]
+    pub async fn from_service_account_json(
+        project_id: impl Into<String>,
+        key_json: &str,
+    ) -> Result<Self, FetchError> {
+        let project_id = project_id.into();
+
+        // Parse the JSON into ServiceAccountKey
+        let sa_key: gcp_bigquery_client::yup_oauth2::ServiceAccountKey =
+            serde_json::from_str(key_json)
+                .map_err(|e| FetchError::ConfigError(format!(
+                    "Failed to parse service account JSON: {}",
+                    e
+                )))?;
+
+        let client = BigQueryClient::from_service_account_key(sa_key, false)
+            .await
+            .map_err(|e| FetchError::AuthenticationError(format!(
+                "Failed to authenticate with service account: {}",
+                e
+            )))?;
+
+        Ok(Self {
+            project_id,
+            client,
+        })
+    }
+
+    /// Create adapter without bigquery feature (returns error)
+    #[cfg(not(feature = "bigquery"))]
+    pub async fn from_service_account_json(
+        project_id: impl Into<String>,
+        _key_json: &str,
+    ) -> Result<Self, FetchError> {
+        let _ = project_id;
+        Err(FetchError::ConfigError(
+            "BigQuery support not compiled. Rebuild with: cargo build --features bigquery".to_string()
+        ))
+    }
+
+    /// Placeholder constructor for backward compatibility
+    ///
+    /// Note: This is deprecated. Use async constructors instead:
+    /// - `with_adc()` for Application Default Credentials
+    /// - `from_service_account_file()` for service account key file
+    /// - `from_service_account_json()` for inline service account JSON
+    pub fn new(project_id: impl Into<String>, _credentials: impl Into<String>) -> Self {
+        #[cfg(feature = "bigquery")]
+        {
+            panic!("BigQueryAdapter::new() is deprecated. Use async constructors: with_adc(), from_service_account_file(), or from_service_account_json()");
+        }
+
+        #[cfg(not(feature = "bigquery"))]
+        {
+            Self {
+                project_id: project_id.into(),
+                _phantom: std::marker::PhantomData,
+            }
         }
     }
 
     /// Convert BigQuery type to LogicalType
-    fn map_bigquery_type(bq_type: &str) -> LogicalType {
-        match bq_type.to_uppercase().as_str() {
+    pub fn map_bigquery_type(bq_type: &str) -> LogicalType {
+        // Handle parameterized types like NUMERIC(10,2) or ARRAY<STRING>
+        let base_type = bq_type.split('(').next()
+            .unwrap_or(bq_type)
+            .split('<').next()
+            .unwrap_or(bq_type)
+            .trim()
+            .to_uppercase();
+
+        match base_type.as_str() {
             "BOOL" | "BOOLEAN" => LogicalType::Bool,
+
             "INT64" | "INTEGER" | "INT" | "SMALLINT" | "TINYINT" | "BYTEINT" => LogicalType::Int,
-            "FLOAT64" | "FLOAT" | "NUMERIC" => LogicalType::Float,
-            "BIGNUMERIC" => LogicalType::Decimal { precision: Some(76), scale: Some(38) },
+
+            "FLOAT64" | "FLOAT" => LogicalType::Float,
+
+            "NUMERIC" | "BIGNUMERIC" | "DECIMAL" => {
+                // Extract precision and scale if present
+                Self::parse_numeric_type(bq_type)
+            }
+
             "STRING" => LogicalType::String,
-            "BYTES" => LogicalType::String, // Map to string for simplicity
+            "BYTES" => LogicalType::String, // Map to string for compatibility
+
             "DATE" => LogicalType::Date,
             "DATETIME" | "TIMESTAMP" => LogicalType::Timestamp,
             "TIME" => LogicalType::Timestamp, // Map to timestamp
-            "GEOGRAPHY" => LogicalType::String, // Map to string
+
+            "GEOGRAPHY" => LogicalType::String, // GeoJSON string
             "JSON" => LogicalType::Json,
-            "ARRAY" => LogicalType::Array {
-                element_type: Box::new(LogicalType::Unknown),
-            },
+
+            "ARRAY" => {
+                // Extract element type from ARRAY<TYPE>
+                let element_type = Self::extract_array_element_type(bq_type);
+                LogicalType::Array {
+                    element_type: Box::new(element_type),
+                }
+            }
+
             "STRUCT" | "RECORD" => LogicalType::Struct { fields: vec![] },
+
             _ => LogicalType::Unknown,
         }
+    }
+
+    /// Parse NUMERIC(precision, scale) type
+    fn parse_numeric_type(type_str: &str) -> LogicalType {
+        if let Some(params) = type_str.split('(').nth(1) {
+            if let Some(params) = params.strip_suffix(')') {
+                let parts: Vec<&str> = params.split(',').collect();
+                if parts.len() == 2 {
+                    let precision = parts[0].trim().parse().ok();
+                    let scale = parts[1].trim().parse().ok();
+                    return LogicalType::Decimal { precision, scale };
+                } else if parts.len() == 1 {
+                    let precision = parts[0].trim().parse().ok();
+                    return LogicalType::Decimal { precision, scale: Some(0) };
+                }
+            }
+        }
+
+        // Default for NUMERIC without parameters
+        LogicalType::Decimal {
+            precision: Some(38),
+            scale: Some(9),
+        }
+    }
+
+    /// Extract element type from ARRAY<TYPE>
+    fn extract_array_element_type(type_str: &str) -> LogicalType {
+        if let Some(start) = type_str.find('<') {
+            if let Some(end) = type_str.rfind('>') {
+                let element_type_str = &type_str[start + 1..end];
+                return Self::map_bigquery_type(element_type_str);
+            }
+        }
+        LogicalType::Unknown
     }
 }
 
@@ -65,9 +264,10 @@ impl WarehouseAdapter for BigQueryAdapter {
         "BigQuery"
     }
 
+    #[cfg(feature = "bigquery")]
     async fn fetch_schema(&self, table: &TableIdentifier) -> Result<Schema, FetchError> {
         // Build the INFORMATION_SCHEMA query
-        let _query = format!(
+        let query = format!(
             r#"
             SELECT
                 column_name,
@@ -83,57 +283,92 @@ impl WarehouseAdapter for BigQueryAdapter {
             table.table
         );
 
-        // In a real implementation, this would:
-        // 1. Create a BigQuery client using credentials
-        // 2. Execute the query
-        // 3. Parse results into Schema
-        //
-        // For now, we return a placeholder error indicating this needs
-        // actual BigQuery SDK integration
+        // Execute query
+        let request = QueryRequest::new(query);
+        let query_response = self.client
+            .job()
+            .query(&self.project_id, request)
+            .await
+            .map_err(|e| {
+                let err_str = e.to_string();
+                if err_str.contains("Not found") {
+                    FetchError::TableNotFound(table.fqn())
+                } else if err_str.contains("Access Denied") || err_str.contains("Permission") {
+                    FetchError::PermissionDenied(format!(
+                        "Cannot access {}: {}",
+                        table.fqn(), err_str
+                    ))
+                } else {
+                    FetchError::QueryError(err_str)
+                }
+            })?;
 
-        Err(FetchError::ConfigError(
-            "BigQuery adapter requires google-cloud-bigquery dependency. \
-             Install with: cargo add google-cloud-bigquery@0.4".to_string()
-        ))
+        // Parse results using ResultSet
+        let mut columns = Vec::new();
+        let mut rs = gcp_bigquery_client::model::query_response::ResultSet::new_from_query_response(query_response);
 
-        // Example of what the real implementation would look like:
-        //
-        // use google_cloud_bigquery::http::bigquery::BigqueryClient;
-        //
-        // let client = if let Some(creds) = &self.credentials {
-        //     BigqueryClient::from_credentials(creds).await
-        //         .map_err(|e| FetchError::AuthenticationError(e.to_string()))?
-        // } else {
-        //     BigqueryClient::new().await
-        //         .map_err(|e| FetchError::AuthenticationError(e.to_string()))?
-        // };
-        //
-        // let result = client.query(&query).await
-        //     .map_err(|e| FetchError::QueryError(e.to_string()))?;
-        //
-        // let mut columns = Vec::new();
-        // for row in result.rows {
-        //     let col_name = row.get::<String>("column_name")?;
-        //     let data_type = row.get::<String>("data_type")?;
-        //     let is_nullable = row.get::<String>("is_nullable")?;
-        //
-        //     let logical_type = Self::map_bigquery_type(&data_type);
-        //     let mut column = Column::new(col_name, logical_type);
-        //
-        //     // Set nullable based on IS_NULLABLE
-        //     // (this would require extending Column to support nullable flag)
-        //
-        //     columns.push(column);
-        // }
-        //
-        // Ok(Schema::from_columns(columns))
+        while rs.next_row() {
+            let col_name = rs.get_string_by_name("column_name")
+                .map_err(|e| FetchError::InvalidResponse(format!("Failed to get column_name: {}", e)))?
+                .unwrap_or_default();
+
+            let data_type = rs.get_string_by_name("data_type")
+                .map_err(|e| FetchError::InvalidResponse(format!("Failed to get data_type: {}", e)))?
+                .unwrap_or_else(|| "UNKNOWN".to_string());
+
+            let is_nullable = rs.get_string_by_name("is_nullable")
+                .map_err(|e| FetchError::InvalidResponse(format!("Failed to get is_nullable: {}", e)))?
+                .unwrap_or_else(|| "YES".to_string());
+
+            let logical_type = Self::map_bigquery_type(&data_type);
+            let nullable = match is_nullable.to_uppercase().as_str() {
+                "YES" => Nullability::Yes,
+                "NO" => Nullability::No,
+                _ => Nullability::Unknown,
+            };
+
+            columns.push(
+                Column::new(col_name, logical_type)
+                    .with_nullability(nullable)
+            );
+        }
+
+        if columns.is_empty() {
+            return Err(FetchError::TableNotFound(format!(
+                "Table {} not found or has no columns",
+                table.fqn()
+            )));
+        }
+
+        Ok(Schema::from_columns(columns))
     }
 
-    async fn test_connection(&self) -> Result<(), FetchError> {
-        // In a real implementation, this would test the BigQuery connection
-        // For now, return config error
+    #[cfg(not(feature = "bigquery"))]
+    async fn fetch_schema(&self, _table: &TableIdentifier) -> Result<Schema, FetchError> {
         Err(FetchError::ConfigError(
-            "BigQuery adapter requires google-cloud-bigquery dependency".to_string()
+            "BigQuery support not compiled. Rebuild with: cargo build --features bigquery".to_string()
+        ))
+    }
+
+    #[cfg(feature = "bigquery")]
+    async fn test_connection(&self) -> Result<(), FetchError> {
+        // Simple query to test connection
+        let query = "SELECT 1";
+        let request = QueryRequest::new(query.to_string());
+
+        self.client
+            .job()
+            .query(&self.project_id, request)
+            .await
+            .map_err(|e| FetchError::QueryError(format!("Connection test failed: {}", e)))?;
+
+        Ok(())
+    }
+
+    #[cfg(not(feature = "bigquery"))]
+    async fn test_connection(&self) -> Result<(), FetchError> {
+        Err(FetchError::ConfigError(
+            "BigQuery support not compiled. Rebuild with: cargo build --features bigquery".to_string()
         ))
     }
 }
@@ -149,16 +384,49 @@ mod tests {
         assert!(matches!(BigQueryAdapter::map_bigquery_type("BOOL"), LogicalType::Bool));
         assert!(matches!(BigQueryAdapter::map_bigquery_type("TIMESTAMP"), LogicalType::Timestamp));
         assert!(matches!(BigQueryAdapter::map_bigquery_type("JSON"), LogicalType::Json));
+        assert!(matches!(BigQueryAdapter::map_bigquery_type("FLOAT64"), LogicalType::Float));
+    }
+
+    #[test]
+    fn test_numeric_type_parsing() {
+        match BigQueryAdapter::map_bigquery_type("NUMERIC(10,2)") {
+            LogicalType::Decimal { precision, scale } => {
+                assert_eq!(precision, Some(10));
+                assert_eq!(scale, Some(2));
+            }
+            _ => panic!("Expected Decimal type"),
+        }
+
+        match BigQueryAdapter::map_bigquery_type("BIGNUMERIC") {
+            LogicalType::Decimal { precision, scale } => {
+                assert_eq!(precision, Some(38));
+                assert_eq!(scale, Some(9));
+            }
+            _ => panic!("Expected Decimal type"),
+        }
+    }
+
+    #[test]
+    fn test_array_type_parsing() {
+        match BigQueryAdapter::map_bigquery_type("ARRAY<STRING>") {
+            LogicalType::Array { element_type } => {
+                assert!(matches!(*element_type, LogicalType::String));
+            }
+            _ => panic!("Expected Array type"),
+        }
+
+        match BigQueryAdapter::map_bigquery_type("ARRAY<INT64>") {
+            LogicalType::Array { element_type } => {
+                assert!(matches!(*element_type, LogicalType::Int));
+            }
+            _ => panic!("Expected Array type"),
+        }
     }
 
     #[test]
     fn test_adapter_creation() {
-        let adapter = BigQueryAdapter::with_adc("my-project");
+        let adapter = BigQueryAdapter::new("my-project", "fake-creds");
         assert_eq!(adapter.name(), "BigQuery");
         assert_eq!(adapter.project_id, "my-project");
-        assert!(adapter.credentials.is_none());
-
-        let adapter_with_creds = BigQueryAdapter::new("my-project", "fake-creds");
-        assert!(adapter_with_creds.credentials.is_some());
     }
 }
