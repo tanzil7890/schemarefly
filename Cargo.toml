@@ -43,6 +43,7 @@ lsp-types = "0.97"
 
 # Config parsing
 toml = "0.8"
+dotenvy = "0.15"
 
 # CLI
 clap = { version = "4.5", features = ["derive", "cargo"] }
