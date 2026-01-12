@@ -19,9 +19,14 @@ snowflake-api = { workspace = true, optional = true }
 arrow-array = { version = "57", optional = true }
 arrow-schema = { version = "57", optional = true }
 
+# PostgreSQL SDK (optional feature)
+tokio-postgres = { workspace = true, optional = true }
+postgres-native-tls = { workspace = true, optional = true }
+native-tls = { workspace = true, optional = true }
+
 [features]
 default = []
 bigquery = ["gcp-bigquery-client"]
 snowflake = ["snowflake-api", "arrow-array", "arrow-schema"]
-postgres = []
+postgres = ["tokio-postgres", "postgres-native-tls", "native-tls"]
 all-warehouses = ["bigquery", "snowflake", "postgres"]
