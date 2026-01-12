@@ -2,7 +2,7 @@
 
 ## Executive Summary
 
-This guide provides a complete, phase-by-phase implementation plan to finish the Warehouse Drift Mode feature in SchemaRefly. The feature is **80% complete** - all core logic exists, and all three warehouse adapters (BigQuery, Snowflake, PostgreSQL) are implemented.
+This guide provides a complete, phase-by-phase implementation plan to finish the Warehouse Drift Mode feature in SchemaRefly. The feature is **85% complete** - all core logic exists, all three warehouse adapters (BigQuery, Snowflake, PostgreSQL) are implemented, and environment variable configuration is fully supported.
 
 ### Current State Analysis
 
@@ -15,7 +15,7 @@ This guide provides a complete, phase-by-phase implementation plan to finish the
 | **BigQuery Adapter** | **✅ Complete** | `crates/schemarefly-catalog/src/bigquery.rs` |
 | **Snowflake Adapter** | **✅ Complete** | `crates/schemarefly-catalog/src/snowflake.rs` |
 | **PostgreSQL Adapter** | **✅ Complete** | `crates/schemarefly-catalog/src/postgres.rs` |
-| Configuration Schema | ⚠️ Partial | `crates/schemarefly-core/src/config.rs` |
+| **Configuration Schema** | **✅ Complete** | `crates/schemarefly-core/src/config.rs` |
 | Integration Tests | ❌ Missing | Needs mock adapters |
 | Documentation | ❌ Missing | Needs user guide |
 
@@ -25,8 +25,8 @@ This guide provides a complete, phase-by-phase implementation plan to finish the
 |-------|--------|--------|
 | **Phase 1: BigQuery Adapter** | **✅ COMPLETED** | `2de69b0` |
 | **Phase 2: Snowflake Adapter** | **✅ COMPLETED** | `66ae073` |
-| **Phase 3: PostgreSQL Adapter** | **✅ COMPLETED** | TBD |
-| Phase 4: Enhanced Configuration | ⏳ Pending | - |
+| **Phase 3: PostgreSQL Adapter** | **✅ COMPLETED** | `9e2fbb9` |
+| **Phase 4: Enhanced Configuration** | **✅ COMPLETED** | TBD |
 | Phase 5: Mock Adapter | ⏳ Pending | - |
 | Phase 6: Integration Tests | ⏳ Pending | - |
 | Phase 7: Documentation | ⏳ Pending | - |
@@ -36,7 +36,7 @@ This guide provides a complete, phase-by-phase implementation plan to finish the
 1. **Phase 1**: ~~Add SDK dependencies and implement BigQuery adapter~~ **✅ COMPLETED**
 2. **Phase 2**: ~~Implement Snowflake adapter~~ **✅ COMPLETED**
 3. **Phase 3**: ~~Add PostgreSQL adapter~~ **✅ COMPLETED**
-4. **Phase 4**: Enhance configuration with environment variables
+4. **Phase 4**: ~~Enhance configuration with environment variables~~ **✅ COMPLETED**
 5. **Phase 5**: Add mock adapter for testing
 6. **Phase 6**: Integration tests
 7. **Phase 7**: Documentation and examples
