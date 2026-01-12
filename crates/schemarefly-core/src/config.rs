@@ -58,14 +58,38 @@ impl SeverityThreshold {
 }
 
 /// Warehouse connection configuration for drift detection
+///
+/// Supports environment variable interpolation for sensitive settings like passwords.
+/// When `use_env_vars` is enabled, settings are first looked up as environment
+/// variables using the format `SCHEMAREFLY_{KEY}` (e.g., `SCHEMAREFLY_PASSWORD`).
+///
+/// # Example Configuration (schemarefly.toml)
+///
+/// ```toml
+/// [warehouse]
+/// type = "bigquery"
+/// use_env_vars = true
+///
+/// [warehouse.settings]
+/// project_id = "my-gcp-project"
+/// # password will be read from SCHEMAREFLY_PASSWORD env var
+/// ```
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct WarehouseConfig {
-    /// Warehouse type (bigquery, snowflake, etc.)
+    /// Warehouse type: bigquery, snowflake, postgres
     #[serde(rename = "type")]
     pub warehouse_type: String,
 
+    /// Use environment variables for settings (recommended for secrets)
+    ///
+    /// When enabled, settings are looked up in this order:
+    /// 1. Environment variable `SCHEMAREFLY_{KEY}` (uppercase)
+    /// 2. Value in `settings` map
+    #[serde(default)]
+    pub use_env_vars: bool,
+
     /// Connection settings (warehouse-specific)
-    #[serde(flatten)]
+    #[serde(default)]
     pub settings: HashMap<String, String>,
 }
 
@@ -73,8 +97,193 @@ impl Default for WarehouseConfig {
     fn default() -> Self {
         Self {
             warehouse_type: "bigquery".to_string(),
+            use_env_vars: true, // Default to true for security
             settings: HashMap::new(),
         }
+    }
+}
+
+impl WarehouseConfig {
+    /// Create a new WarehouseConfig with the specified type
+    pub fn new(warehouse_type: impl Into<String>) -> Self {
+        Self {
+            warehouse_type: warehouse_type.into(),
+            use_env_vars: true,
+            settings: HashMap::new(),
+        }
+    }
+
+    /// Set a configuration setting
+    pub fn with_setting(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
+        self.settings.insert(key.into(), value.into());
+        self
+    }
+
+    /// Enable or disable environment variable lookup
+    pub fn with_env_vars(mut self, enabled: bool) -> Self {
+        self.use_env_vars = enabled;
+        self
+    }
+
+    /// Get a setting value, checking environment variables first if enabled
+    ///
+    /// When `use_env_vars` is true, the lookup order is:
+    /// 1. Environment variable `SCHEMAREFLY_{KEY}` (key is uppercased)
+    /// 2. Value from `settings` map
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// let config = WarehouseConfig::new("snowflake").with_env_vars(true);
+    /// // This will check SCHEMAREFLY_PASSWORD first, then settings["password"]
+    /// let password = config.get_setting("password");
+    /// ```
+    pub fn get_setting(&self, key: &str) -> Option<String> {
+        if self.use_env_vars {
+            // Check environment variable first (SCHEMAREFLY_{KEY})
+            let env_key = format!("SCHEMAREFLY_{}", key.to_uppercase());
+            if let Ok(value) = std::env::var(&env_key) {
+                if !value.is_empty() {
+                    return Some(value);
+                }
+            }
+
+            // Also check common environment variable patterns for credentials
+            match key.to_lowercase().as_str() {
+                "credentials" | "google_credentials" => {
+                    // Check GOOGLE_APPLICATION_CREDENTIALS for BigQuery
+                    if let Ok(value) = std::env::var("GOOGLE_APPLICATION_CREDENTIALS") {
+                        if !value.is_empty() {
+                            return Some(value);
+                        }
+                    }
+                }
+                "project_id" | "project" => {
+                    // Check GCP_PROJECT or GOOGLE_CLOUD_PROJECT
+                    for env_var in ["GCP_PROJECT", "GOOGLE_CLOUD_PROJECT", "GCLOUD_PROJECT"] {
+                        if let Ok(value) = std::env::var(env_var) {
+                            if !value.is_empty() {
+                                return Some(value);
+                            }
+                        }
+                    }
+                }
+                "account" => {
+                    // Check SNOWFLAKE_ACCOUNT
+                    if let Ok(value) = std::env::var("SNOWFLAKE_ACCOUNT") {
+                        if !value.is_empty() {
+                            return Some(value);
+                        }
+                    }
+                }
+                "username" | "user" => {
+                    // Check common username env vars
+                    for env_var in ["SNOWFLAKE_USER", "PGUSER", "DATABASE_USER"] {
+                        if let Ok(value) = std::env::var(env_var) {
+                            if !value.is_empty() {
+                                return Some(value);
+                            }
+                        }
+                    }
+                }
+                "password" => {
+                    // Check common password env vars
+                    for env_var in ["SNOWFLAKE_PASSWORD", "PGPASSWORD", "DATABASE_PASSWORD"] {
+                        if let Ok(value) = std::env::var(env_var) {
+                            if !value.is_empty() {
+                                return Some(value);
+                            }
+                        }
+                    }
+                }
+                "host" => {
+                    // Check common host env vars
+                    for env_var in ["PGHOST", "DATABASE_HOST"] {
+                        if let Ok(value) = std::env::var(env_var) {
+                            if !value.is_empty() {
+                                return Some(value);
+                            }
+                        }
+                    }
+                }
+                "port" => {
+                    // Check common port env vars
+                    for env_var in ["PGPORT", "DATABASE_PORT"] {
+                        if let Ok(value) = std::env::var(env_var) {
+                            if !value.is_empty() {
+                                return Some(value);
+                            }
+                        }
+                    }
+                }
+                "database" | "dbname" => {
+                    // Check common database env vars
+                    for env_var in ["PGDATABASE", "DATABASE_NAME"] {
+                        if let Ok(value) = std::env::var(env_var) {
+                            if !value.is_empty() {
+                                return Some(value);
+                            }
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        // Fall back to settings map
+        self.settings.get(key).cloned()
+    }
+
+    /// Get a required setting, returning an error if not found
+    ///
+    /// This is useful for settings that must be provided for the adapter to work.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// let project_id = config.require_setting("project_id")?;
+    /// ```
+    pub fn require_setting(&self, key: &str) -> Result<String, String> {
+        self.get_setting(key).ok_or_else(|| {
+            if self.use_env_vars {
+                format!(
+                    "Missing required setting '{}'. Set it in schemarefly.toml [warehouse.settings] \
+                     or via SCHEMAREFLY_{} environment variable",
+                    key,
+                    key.to_uppercase()
+                )
+            } else {
+                format!(
+                    "Missing required setting '{}' in [warehouse.settings]",
+                    key
+                )
+            }
+        })
+    }
+
+    /// Check if a setting exists (either in config or environment)
+    pub fn has_setting(&self, key: &str) -> bool {
+        self.get_setting(key).is_some()
+    }
+
+    /// Get all settings, including those from environment variables
+    ///
+    /// This merges settings from the config file with environment variables,
+    /// with environment variables taking precedence.
+    pub fn all_settings(&self) -> HashMap<String, String> {
+        let mut result = self.settings.clone();
+
+        if self.use_env_vars {
+            // Add any SCHEMAREFLY_* environment variables
+            for (key, value) in std::env::vars() {
+                if let Some(setting_key) = key.strip_prefix("SCHEMAREFLY_") {
+                    let lower_key = setting_key.to_lowercase();
+                    result.insert(lower_key, value);
+                }
+            }
+        }
+
+        result
     }
 }
 
@@ -284,5 +493,125 @@ mod tests {
         assert!(glob_match("staging.*", "staging.users"));
         assert!(glob_match("*.sql", "model.sql"));
         assert!(!glob_match("staging.*", "prod.users"));
+    }
+
+    #[test]
+    fn warehouse_config_default() {
+        let config = WarehouseConfig::default();
+        assert_eq!(config.warehouse_type, "bigquery");
+        assert!(config.use_env_vars);
+        assert!(config.settings.is_empty());
+    }
+
+    #[test]
+    fn warehouse_config_builder() {
+        let config = WarehouseConfig::new("snowflake")
+            .with_setting("account", "xy12345")
+            .with_setting("username", "user")
+            .with_env_vars(false);
+
+        assert_eq!(config.warehouse_type, "snowflake");
+        assert!(!config.use_env_vars);
+        assert_eq!(config.settings.get("account"), Some(&"xy12345".to_string()));
+        assert_eq!(config.settings.get("username"), Some(&"user".to_string()));
+    }
+
+    #[test]
+    fn warehouse_config_get_setting_from_map() {
+        let config = WarehouseConfig::new("bigquery")
+            .with_setting("project_id", "my-project")
+            .with_env_vars(false); // Disable env vars for this test
+
+        assert_eq!(config.get_setting("project_id"), Some("my-project".to_string()));
+        assert_eq!(config.get_setting("nonexistent"), None);
+    }
+
+    #[test]
+    fn warehouse_config_require_setting() {
+        let config = WarehouseConfig::new("bigquery")
+            .with_setting("project_id", "my-project")
+            .with_env_vars(false);
+
+        assert_eq!(config.require_setting("project_id").unwrap(), "my-project");
+        assert!(config.require_setting("nonexistent").is_err());
+    }
+
+    #[test]
+    fn warehouse_config_has_setting() {
+        let config = WarehouseConfig::new("postgres")
+            .with_setting("host", "localhost")
+            .with_env_vars(false);
+
+        assert!(config.has_setting("host"));
+        assert!(!config.has_setting("password"));
+    }
+
+    #[test]
+    fn warehouse_config_env_var_override() {
+        // Set an environment variable for testing
+        std::env::set_var("SCHEMAREFLY_TEST_KEY", "env_value");
+
+        let config = WarehouseConfig::new("postgres")
+            .with_setting("test_key", "config_value")
+            .with_env_vars(true);
+
+        // Environment variable should take precedence
+        assert_eq!(config.get_setting("test_key"), Some("env_value".to_string()));
+
+        // Clean up
+        std::env::remove_var("SCHEMAREFLY_TEST_KEY");
+    }
+
+    #[test]
+    fn warehouse_config_env_var_disabled() {
+        // Set an environment variable
+        std::env::set_var("SCHEMAREFLY_DISABLED_KEY", "env_value");
+
+        let config = WarehouseConfig::new("postgres")
+            .with_setting("disabled_key", "config_value")
+            .with_env_vars(false); // Disable env var lookup
+
+        // Should use config value since env vars are disabled
+        assert_eq!(config.get_setting("disabled_key"), Some("config_value".to_string()));
+
+        // Clean up
+        std::env::remove_var("SCHEMAREFLY_DISABLED_KEY");
+    }
+
+    #[test]
+    fn warehouse_config_all_settings() {
+        std::env::set_var("SCHEMAREFLY_EXTRA_KEY", "extra_value");
+
+        let config = WarehouseConfig::new("postgres")
+            .with_setting("host", "localhost")
+            .with_env_vars(true);
+
+        let all = config.all_settings();
+        assert_eq!(all.get("host"), Some(&"localhost".to_string()));
+        assert_eq!(all.get("extra_key"), Some(&"extra_value".to_string()));
+
+        // Clean up
+        std::env::remove_var("SCHEMAREFLY_EXTRA_KEY");
+    }
+
+    #[test]
+    fn warehouse_config_toml_parsing() {
+        let toml = r#"
+            [warehouse]
+            type = "snowflake"
+            use_env_vars = true
+
+            [warehouse.settings]
+            account = "xy12345"
+            warehouse = "COMPUTE_WH"
+        "#;
+
+        let config: Config = toml::from_str(toml).unwrap();
+        let warehouse = config.warehouse.unwrap();
+
+        assert_eq!(warehouse.warehouse_type, "snowflake");
+        assert!(warehouse.use_env_vars);
+        assert_eq!(warehouse.settings.get("account"), Some(&"xy12345".to_string()));
+        assert_eq!(warehouse.settings.get("warehouse"), Some(&"COMPUTE_WH".to_string()));
     }
 }
