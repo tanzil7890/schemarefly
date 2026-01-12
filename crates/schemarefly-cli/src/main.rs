@@ -7,7 +7,7 @@ use schemarefly_core::{Report, Config, Diagnostic, DialectConfig};
 use schemarefly_dbt::{Manifest, DependencyGraph, ContractExtractor};
 use schemarefly_engine::{DriftDetection, StateComparison, StateComparisonResult};
 use schemarefly_sql::DbtFunctionExtractor;
-use schemarefly_catalog::{WarehouseAdapter, TableIdentifier, BigQueryAdapter, SnowflakeAdapter, SnowflakeAdapterBuilder};
+use schemarefly_catalog::{WarehouseAdapter, TableIdentifier, BigQueryAdapter, SnowflakeAdapterBuilder, PostgresAdapter};
 
 /// SchemaRefly - Schema contract verification for dbt
 #[derive(Parser)]
@@ -563,6 +563,14 @@ fn find_node_id(manifest: &Manifest, name: &str) -> Result<String> {
 
 /// Drift command - detect warehouse schema changes
 async fn drift_command(config: &Config, output: &PathBuf, verbose: bool) -> Result<()> {
+    // Load .env file if present (for environment variable configuration)
+    if let Err(e) = dotenvy::dotenv() {
+        // Only warn if verbose - it's okay if .env doesn't exist
+        if verbose && !matches!(e, dotenvy::Error::Io(_)) {
+            eprintln!("{} Failed to load .env file: {}", "⚠".yellow(), e);
+        }
+    }
+
     if verbose {
         eprintln!("{}", "Detecting schema drift...".cyan());
     }
@@ -571,7 +579,13 @@ async fn drift_command(config: &Config, output: &PathBuf, verbose: bool) -> Resu
     let warehouse_config = config.warehouse.as_ref()
         .ok_or_else(|| anyhow::anyhow!(
             "No warehouse configuration found in schemarefly.toml. \
-             Add a [warehouse] section with type and connection settings."
+             Add a [warehouse] section with type and connection settings.\n\n\
+             Example:\n\
+             [warehouse]\n\
+             type = \"bigquery\"\n\
+             use_env_vars = true\n\n\
+             [warehouse.settings]\n\
+             project_id = \"my-gcp-project\""
         ))?;
 
     // Find manifest path
@@ -593,41 +607,79 @@ async fn drift_command(config: &Config, output: &PathBuf, verbose: bool) -> Resu
     // Create warehouse adapter based on config
     if verbose {
         eprintln!("{} {}...", "Connecting to".cyan(), warehouse_config.warehouse_type);
+        if warehouse_config.use_env_vars {
+            eprintln!("{}", "  (environment variable lookup enabled)".dimmed());
+        }
     }
 
     let adapter: Box<dyn WarehouseAdapter> = match warehouse_config.warehouse_type.to_lowercase().as_str() {
         "bigquery" => {
-            let project_id = warehouse_config.settings.get("project_id")
-                .ok_or_else(|| anyhow::anyhow!("BigQuery requires 'project_id' in warehouse settings"))?;
+            let project_id = warehouse_config.require_setting("project_id")
+                .map_err(|e| anyhow::anyhow!("BigQuery configuration error: {}", e))?;
 
-            if let Some(credentials) = warehouse_config.settings.get("credentials") {
-                Box::new(BigQueryAdapter::from_service_account_json(project_id, credentials).await?)
+            if let Some(credentials) = warehouse_config.get_setting("credentials") {
+                // Check if it's a file path or JSON content
+                if credentials.starts_with('{') {
+                    Box::new(BigQueryAdapter::from_service_account_json(&project_id, &credentials).await?)
+                } else {
+                    Box::new(BigQueryAdapter::from_service_account_file(&project_id, &credentials).await?)
+                }
             } else {
-                Box::new(BigQueryAdapter::with_adc(project_id).await?)
+                // Use Application Default Credentials
+                Box::new(BigQueryAdapter::with_adc(&project_id).await?)
             }
         }
         "snowflake" => {
-            let account = warehouse_config.settings.get("account")
-                .ok_or_else(|| anyhow::anyhow!("Snowflake requires 'account' in warehouse settings"))?;
-            let username = warehouse_config.settings.get("username")
-                .ok_or_else(|| anyhow::anyhow!("Snowflake requires 'username' in warehouse settings"))?;
-            let password = warehouse_config.settings.get("password")
-                .ok_or_else(|| anyhow::anyhow!("Snowflake requires 'password' in warehouse settings"))?;
+            let account = warehouse_config.require_setting("account")
+                .map_err(|e| anyhow::anyhow!("Snowflake configuration error: {}", e))?;
+            let username = warehouse_config.require_setting("username")
+                .map_err(|e| anyhow::anyhow!("Snowflake configuration error: {}", e))?;
+            let password = warehouse_config.require_setting("password")
+                .map_err(|e| anyhow::anyhow!("Snowflake configuration error: {}", e))?;
 
-            let mut builder = SnowflakeAdapterBuilder::with_password(account, username, password);
+            let mut builder = SnowflakeAdapterBuilder::with_password(&account, &username, &password);
 
-            if let Some(warehouse) = warehouse_config.settings.get("warehouse") {
-                builder = builder.with_warehouse(warehouse);
+            if let Some(warehouse) = warehouse_config.get_setting("warehouse") {
+                builder = builder.with_warehouse(&warehouse);
             }
-            if let Some(role) = warehouse_config.settings.get("role") {
-                builder = builder.with_role(role);
+            if let Some(role) = warehouse_config.get_setting("role") {
+                builder = builder.with_role(&role);
+            }
+            if let Some(database) = warehouse_config.get_setting("database") {
+                builder = builder.with_database(&database);
             }
 
             Box::new(builder.build()?)
         }
+        "postgres" | "postgresql" | "redshift" => {
+            let host = warehouse_config.require_setting("host")
+                .map_err(|e| anyhow::anyhow!("PostgreSQL configuration error: {}", e))?;
+            let port: u16 = warehouse_config.get_setting("port")
+                .unwrap_or_else(|| "5432".to_string())
+                .parse()
+                .map_err(|_| anyhow::anyhow!("Invalid port number in warehouse settings"))?;
+            let database = warehouse_config.require_setting("database")
+                .map_err(|e| anyhow::anyhow!("PostgreSQL configuration error: {}", e))?;
+            let username = warehouse_config.require_setting("username")
+                .map_err(|e| anyhow::anyhow!("PostgreSQL configuration error: {}", e))?;
+            let password = warehouse_config.require_setting("password")
+                .map_err(|e| anyhow::anyhow!("PostgreSQL configuration error: {}", e))?;
+
+            // Check if SSL/TLS is requested
+            let use_tls = warehouse_config.get_setting("ssl")
+                .or_else(|| warehouse_config.get_setting("sslmode"))
+                .map(|v| v != "disable" && v != "false")
+                .unwrap_or(false);
+
+            if use_tls {
+                Box::new(PostgresAdapter::connect_with_tls(&host, port, &database, &username, &password).await?)
+            } else {
+                Box::new(PostgresAdapter::connect(&host, port, &database, &username, &password).await?)
+            }
+        }
         _ => {
             return Err(anyhow::anyhow!(
-                "Unsupported warehouse type '{}'. Supported: bigquery, snowflake",
+                "Unsupported warehouse type '{}'. Supported: bigquery, snowflake, postgres",
                 warehouse_config.warehouse_type
             ));
         }
