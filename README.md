@@ -247,13 +247,147 @@ Shows the complete blast radius (transitive closure) of downstream dependencies.
 - "Which models depend on this source?"
 
 ### drift
-Detect schema drift from warehouse.
+Detect schema drift between your dbt contracts and the actual warehouse schema.
 
 ```bash
-schemarefly drift [--output drift-report.json]
+# Run drift detection
+schemarefly drift [--output drift-report.json] [--verbose]
+
+# Example with verbose output
+schemarefly drift --verbose
 ```
 
+**Note**: Requires warehouse feature flags and credentials. See [Warehouse Drift Detection](#warehouse-drift-detection) for setup.
 
+## Warehouse Drift Detection
+
+SchemaRefly can detect schema drift between your dbt contracts and the actual warehouse schema. This helps catch unexpected schema changes before they cause issues in production.
+
+### Building with Warehouse Support
+
+Warehouse adapters are optional features to keep the default binary small:
+
+```bash
+# Build with specific warehouse support
+cargo build --release --features bigquery
+cargo build --release --features snowflake
+cargo build --release --features postgres
+
+# Build with all warehouse adapters
+cargo build --release --features all-warehouses
+```
+
+### Configuration
+
+Add warehouse configuration to your `schemarefly.toml`:
+
+```toml
+# SQL dialect (required)
+dialect = "bigquery"
+
+[warehouse]
+type = "bigquery"  # or "snowflake", "postgres"
+use_env_vars = true  # Recommended for security
+
+[warehouse.settings]
+# BigQuery
+project_id = "my-gcp-project"
+
+# Snowflake (alternative)
+# account = "xy12345.us-east-1"
+# username = "user"
+# warehouse = "COMPUTE_WH"
+# database = "MY_DB"
+
+# PostgreSQL (alternative)
+# host = "localhost"
+# port = "5432"
+# database = "mydb"
+# username = "user"
+```
+
+### Environment Variables
+
+For security, credentials should be set via environment variables:
+
+```bash
+# BigQuery (uses Application Default Credentials)
+export GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account.json
+
+# Or use GCP project environment variable
+export GCP_PROJECT=my-gcp-project
+```
+
+```bash
+# Snowflake
+export SNOWFLAKE_ACCOUNT=xy12345.us-east-1
+export SNOWFLAKE_USER=username
+export SNOWFLAKE_PASSWORD=secret
+export SNOWFLAKE_WAREHOUSE=COMPUTE_WH  # Optional
+export SNOWFLAKE_ROLE=MY_ROLE          # Optional
+```
+
+```bash
+# PostgreSQL
+export PGHOST=localhost
+export PGPORT=5432
+export PGDATABASE=mydb
+export PGUSER=user
+export PGPASSWORD=secret
+```
+
+SchemaRefly also supports `SCHEMAREFLY_*` prefixed environment variables (e.g., `SCHEMAREFLY_PASSWORD`) which take precedence.
+
+### Running Drift Detection
+
+```bash
+# Compile your dbt project first
+dbt compile
+
+# Run drift detection
+schemarefly drift --verbose
+
+# Output to specific file
+schemarefly drift --output my-drift-report.json
+```
+
+### Drift Report Output
+
+The drift command generates a JSON report with:
+
+- **Models checked**: Number of models with contracts
+- **Drift detections**: Specific schema differences found
+- **Severity levels**:
+  - `Error`: Dropped columns, breaking type changes
+  - `Warning`: Potential issues
+  - `Info`: New columns added (non-breaking)
+
+Example output:
+```
+Detecting schema drift...
+Loading manifest from: target/manifest.json
+Connecting to BigQuery...
+✓ Connection successful
+
+Checking models with contracts...
+  ✓ users (5 columns)
+  ✗ orders (drift detected)
+
+Drift Report:
+[ERROR] Column 'legacy_id' was dropped from warehouse table orders
+[ERROR] Column 'amount' type changed: was DECIMAL(10,2), now FLOAT64
+[INFO] New column 'updated_at' added to warehouse table orders
+
+Drift report saved to: drift-report.json
+```
+
+### Supported Warehouses
+
+| Warehouse | Feature Flag | Authentication |
+|-----------|-------------|----------------|
+| BigQuery | `bigquery` | Application Default Credentials, Service Account JSON |
+| Snowflake | `snowflake` | Password, Key-Pair |
+| PostgreSQL | `postgres` | Password, TLS |
 
 ## VS Code Extension
 

@@ -1,0 +1,103 @@
+# SchemaRefly Configuration for Drift Detection
+# Copy this file to schemarefly.toml and customize for your project
+
+# SQL dialect: bigquery, snowflake, postgres, ansi
+dialect = "bigquery"
+
+# ============================================================================
+# Warehouse Configuration (for drift detection)
+# ============================================================================
+
+[warehouse]
+# Warehouse type: bigquery, snowflake, postgres
+type = "bigquery"
+
+# Enable environment variable lookup for sensitive settings
+# When true, settings are looked up in this order:
+# 1. Environment variable SCHEMAREFLY_{KEY} (e.g., SCHEMAREFLY_PASSWORD)
+# 2. Common env vars (e.g., PGPASSWORD, SNOWFLAKE_PASSWORD)
+# 3. Value in [warehouse.settings]
+use_env_vars = true
+
+[warehouse.settings]
+# ----------------------------------------------------------------------------
+# BigQuery Settings
+# ----------------------------------------------------------------------------
+# Required: GCP project ID
+project_id = "your-gcp-project"
+
+# Optional: Location (e.g., "US", "EU", "us-central1")
+# location = "US"
+
+# Authentication: Uses Application Default Credentials by default
+# Set GOOGLE_APPLICATION_CREDENTIALS env var for service account
+
+# ----------------------------------------------------------------------------
+# Snowflake Settings (uncomment if using Snowflake)
+# ----------------------------------------------------------------------------
+# [warehouse]
+# type = "snowflake"
+# use_env_vars = true
+#
+# [warehouse.settings]
+# account = "xy12345.us-east-1"
+# username = "your_username"
+# # password should be set via SNOWFLAKE_PASSWORD env var
+# warehouse = "COMPUTE_WH"
+# database = "YOUR_DATABASE"
+# role = "YOUR_ROLE"
+
+# ----------------------------------------------------------------------------
+# PostgreSQL Settings (uncomment if using PostgreSQL)
+# ----------------------------------------------------------------------------
+# [warehouse]
+# type = "postgres"
+# use_env_vars = true
+#
+# [warehouse.settings]
+# host = "localhost"
+# port = "5432"
+# database = "your_database"
+# username = "your_username"
+# # password should be set via PGPASSWORD env var
+# # For TLS connections, set:
+# # sslmode = "require"
+
+# ============================================================================
+# Severity Overrides
+# ============================================================================
+
+[severity.overrides]
+# Override severity for specific diagnostic codes
+# Available severities: error, warn, info, off
+
+# Example: Treat extra columns as warnings instead of info
+# CONTRACT_EXTRA_COLUMN = "warn"
+
+# Example: Ignore new columns in warehouse (drift detection)
+# DRIFT_COLUMN_ADDED = "off"
+
+# ============================================================================
+# Allowlist Rules
+# ============================================================================
+
+[allowlist]
+# Allow type widening for specific models (glob patterns)
+# Useful for staging models where type coercion is acceptable
+allow_widening = [
+    # "staging.*",
+    # "stg_*"
+]
+
+# Allow extra columns for specific models
+# Useful for models that intentionally have extra columns
+allow_extra_columns = [
+    # "staging.*",
+    # "*_raw"
+]
+
+# Skip checks entirely for specific models
+skip_models = [
+    # "temp_*",
+    # "test_*"
+]
