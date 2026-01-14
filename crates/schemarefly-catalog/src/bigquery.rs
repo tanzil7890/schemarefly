@@ -424,9 +424,19 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(feature = "bigquery"))]
     fn test_adapter_creation() {
         let adapter = BigQueryAdapter::new("my-project", "fake-creds");
         assert_eq!(adapter.name(), "BigQuery");
         assert_eq!(adapter.project_id, "my-project");
+    }
+
+    #[test]
+    #[cfg(feature = "bigquery")]
+    #[should_panic(expected = "BigQueryAdapter::new() is deprecated")]
+    fn test_adapter_creation_deprecated_panics() {
+        // This test verifies that the deprecated new() method panics
+        // when bigquery feature is enabled
+        let _adapter = BigQueryAdapter::new("my-project", "fake-creds");
     }
 }
