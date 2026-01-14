@@ -2683,6 +2683,7 @@ dependencies = [
  "native-tls",
  "postgres-native-tls",
  "schemarefly-core",
+ "schemarefly-engine",
  "serde",
  "serde_json",
  "snowflake-api",
