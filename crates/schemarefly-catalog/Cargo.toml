@@ -24,6 +24,10 @@ tokio-postgres = { workspace = true, optional = true }
 postgres-native-tls = { workspace = true, optional = true }
 native-tls = { workspace = true, optional = true }
 
+[dev-dependencies]
+schemarefly-engine = { path = "../schemarefly-engine" }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }
+
 [features]
 default = []
 bigquery = ["gcp-bigquery-client"]
