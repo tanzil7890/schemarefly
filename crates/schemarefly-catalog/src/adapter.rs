@@ -39,7 +39,7 @@ impl fmt::Display for TableIdentifier {
 }
 
 /// Errors that can occur when fetching schemas
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, Clone, thiserror::Error)]
 pub enum FetchError {
     #[error("Authentication failed: {0}")]
     AuthenticationError(String),
