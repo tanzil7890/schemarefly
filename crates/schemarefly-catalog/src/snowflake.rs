@@ -26,7 +26,7 @@
 //! Reference: https://docs.snowflake.com/en/sql-reference/info-schema
 
 use crate::adapter::{WarehouseAdapter, TableIdentifier, FetchError};
-use schemarefly_core::{Schema, LogicalType};
+use schemarefly_core::{Schema, Column, LogicalType, Nullability};
 
 #[cfg(feature = "snowflake")]
 use snowflake_api::SnowflakeApi;
