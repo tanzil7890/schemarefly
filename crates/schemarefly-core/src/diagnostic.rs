@@ -36,6 +36,12 @@ pub enum DiagnosticCode {
     /// Warehouse table schema has changed (new column added)
     DriftColumnAdded,
 
+    /// Model was skipped during drift detection (could not fetch schema)
+    DriftModelSkipped,
+
+    /// Warehouse column nullability changed
+    DriftNullabilityChange,
+
     // SQL inference issues (3xxx)
     /// SELECT * encountered but cannot expand (no catalog)
     SqlSelectStarUnexpandable,
@@ -85,6 +91,8 @@ impl DiagnosticCode {
             Self::DriftColumnDropped => "DRIFT_COLUMN_DROPPED",
             Self::DriftTypeChange => "DRIFT_TYPE_CHANGE",
             Self::DriftColumnAdded => "DRIFT_COLUMN_ADDED",
+            Self::DriftModelSkipped => "DRIFT_MODEL_SKIPPED",
+            Self::DriftNullabilityChange => "DRIFT_NULLABILITY_CHANGE",
             Self::SqlSelectStarUnexpandable => "SQL_SELECT_STAR_UNEXPANDABLE",
             Self::SqlUnsupportedSyntax => "SQL_UNSUPPORTED_SYNTAX",
             Self::SqlParseError => "SQL_PARSE_ERROR",
