@@ -28,7 +28,7 @@
 //! Reference: https://cloud.google.com/bigquery/docs/information-schema-columns
 
 use crate::adapter::{WarehouseAdapter, TableIdentifier, FetchError};
-use schemarefly_core::{Schema, Column, LogicalType, Nullability};
+use schemarefly_core::{Schema, LogicalType};
 
 #[cfg(feature = "bigquery")]
 use gcp_bigquery_client::{Client as BigQueryClient, model::query_request::QueryRequest};

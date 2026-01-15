@@ -40,7 +40,7 @@
 //! Reference: https://www.postgresql.org/docs/current/information-schema-columns.html
 
 use crate::adapter::{WarehouseAdapter, TableIdentifier, FetchError};
-use schemarefly_core::{Schema, Column, LogicalType, Nullability};
+use schemarefly_core::{Schema, LogicalType};
 
 #[cfg(feature = "postgres")]
 use tokio_postgres::{Client, NoTls, Config as PgConfig};
