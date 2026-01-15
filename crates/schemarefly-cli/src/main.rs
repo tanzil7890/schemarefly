@@ -702,77 +702,129 @@ async fn drift_command(config: &Config, output: &PathBuf, verbose: bool) -> Resu
     let mut all_drift_detections = Vec::new();
     let mut checked_models = 0;
     let mut models_with_drift = 0;
+    let mut skipped_models: Vec<(String, String, Option<String>)> = Vec::new(); // (model_name, reason, file_path)
 
     // Check each model with a contract
     for (node_id, node) in manifest.models() {
-        if let Some(contract) = ContractExtractor::extract_from_node(node) {
-            if verbose {
-                eprintln!("  {} {}...", "Checking".cyan(), node.name);
-            }
+        // Check if model has an enforced contract
+        let has_enforced_contract = node.config.contract
+            .as_ref()
+            .map(|c| c.enforced)
+            .unwrap_or(false);
 
-            // Parse table identifier from node
-            // Format: database.schema.table
-            let table_id = parse_table_identifier(&node_id, &node.database, &node.schema, &node.name)?;
-
-            // Fetch actual schema from warehouse
-            let actual_schema = match adapter.fetch_schema(&table_id).await {
-                Ok(schema) => schema,
-                Err(e) => {
-                    if verbose {
-                        eprintln!("    {} {}", "⚠ Warning:".yellow(), e);
-                    }
-                    // Skip this model if we can't fetch its schema
-                    continue;
+        // Try to extract contract
+        let contract = match ContractExtractor::extract_from_node(node) {
+            Some(c) => c,
+            None => {
+                // Only warn if this model was supposed to have an enforced contract
+                // but we couldn't extract it (e.g., no columns with data_type)
+                if has_enforced_contract {
+                    let reason = "Contract enforced but no columns with data_type specified".to_string();
+                    eprintln!("  {} {} - {}", "⚠ Skipped:".yellow(), node.name, reason);
+                    skipped_models.push((
+                        node.name.clone(),
+                        reason,
+                        Some(node.original_file_path.clone()),
+                    ));
                 }
-            };
-
-            // Compare expected (contract) vs actual (warehouse)
-            let drift = DriftDetection::detect(
-                node_id,
-                &contract.schema,
-                &actual_schema,
-                Some(node.original_file_path.clone()),
-            );
-
-            let has_errors = drift.has_errors();
-            let has_warnings = drift.has_warnings();
-            let has_info = drift.has_info();
-
-            if has_errors || has_warnings || has_info {
-                models_with_drift += 1;
+                continue;
             }
+        };
 
-            checked_models += 1;
-
-            if verbose {
-                if has_errors {
-                    eprintln!("    {} {} drift errors", "✗".red(), drift.error_count());
-                } else if has_warnings {
-                    eprintln!("    {} {} drift warnings", "⚠".yellow(), drift.warning_count());
-                } else if has_info {
-                    eprintln!("    {} {} informational drifts", "ℹ".cyan(), drift.info_count());
-                } else {
-                    eprintln!("    {}", "✓ No drift".green());
-                }
-            }
-
-            all_drift_detections.push(drift);
+        if verbose {
+            eprintln!("  {} {}...", "Checking".cyan(), node.name);
         }
+
+        // Parse table identifier from node
+        // Format: database.schema.table
+        let table_id = match parse_table_identifier(&node_id, &node.database, &node.schema, &node.name) {
+            Ok(id) => id,
+            Err(e) => {
+                let reason = format!("Missing table identifier: {}", e);
+                eprintln!("  {} {} - {}", "⚠ Skipped:".yellow(), node.name, reason);
+                skipped_models.push((
+                    node.name.clone(),
+                    reason,
+                    Some(node.original_file_path.clone()),
+                ));
+                continue;
+            }
+        };
+
+        // Fetch actual schema from warehouse
+        let actual_schema = match adapter.fetch_schema(&table_id).await {
+            Ok(schema) => schema,
+            Err(e) => {
+                let reason = format!("Failed to fetch schema: {}", e);
+                eprintln!("  {} {} - {}", "⚠ Skipped:".yellow(), node.name, reason);
+                skipped_models.push((
+                    node.name.clone(),
+                    reason,
+                    Some(node.original_file_path.clone()),
+                ));
+                continue;
+            }
+        };
+
+        // Compare expected (contract) vs actual (warehouse)
+        let drift = DriftDetection::detect(
+            node_id,
+            &contract.schema,
+            &actual_schema,
+            Some(node.original_file_path.clone()),
+        );
+
+        let has_errors = drift.has_errors();
+        let has_warnings = drift.has_warnings();
+        let has_info = drift.has_info();
+
+        if has_errors || has_warnings || has_info {
+            models_with_drift += 1;
+        }
+
+        checked_models += 1;
+
+        if verbose {
+            if has_errors {
+                eprintln!("    {} {} drift errors", "✗".red(), drift.error_count());
+            } else if has_warnings {
+                eprintln!("    {} {} drift warnings", "⚠".yellow(), drift.warning_count());
+            } else if has_info {
+                eprintln!("    {} {} informational drifts", "ℹ".cyan(), drift.info_count());
+            } else {
+                eprintln!("    {}", "✓ No drift".green());
+            }
+        }
+
+        all_drift_detections.push(drift);
     }
 
-    if verbose {
+    if verbose || !skipped_models.is_empty() {
         eprintln!();
         eprintln!(
-            "Checked {} models, {} with drift detected",
-            checked_models, models_with_drift
+            "Checked {} models, {} with drift detected, {} skipped",
+            checked_models, models_with_drift, skipped_models.len()
         );
     }
 
     // Collect all diagnostics from drift detections
-    let all_diagnostics: Vec<Diagnostic> = all_drift_detections
+    let mut all_diagnostics: Vec<Diagnostic> = all_drift_detections
         .iter()
         .flat_map(|d| d.diagnostics.clone())
         .collect();
+
+    // Add diagnostics for skipped models (so they appear in the report)
+    for (model_name, reason, file_path) in &skipped_models {
+        let mut diag = Diagnostic::new(
+            schemarefly_core::DiagnosticCode::DriftModelSkipped,
+            schemarefly_core::Severity::Warn,
+            format!("Model '{}' was skipped: {}", model_name, reason),
+        );
+        if let Some(path) = file_path {
+            diag = diag.with_location(schemarefly_core::Location::new(path.clone()));
+        }
+        all_diagnostics.push(diag);
+    }
 
     // Build drift report
     let report = Report::from_diagnostics(all_diagnostics);
@@ -785,7 +837,7 @@ async fn drift_command(config: &Config, output: &PathBuf, verbose: bool) -> Resu
     }
 
     // Print summary
-    print_drift_summary(&report, checked_models, models_with_drift);
+    print_drift_summary(&report, checked_models, models_with_drift, skipped_models.len());
 
     // Exit with error code if there are errors
     if report.has_errors() {
@@ -818,7 +870,7 @@ fn parse_table_identifier(
 }
 
 /// Print drift detection summary
-fn print_drift_summary(report: &Report, checked_models: usize, models_with_drift: usize) {
+fn print_drift_summary(report: &Report, checked_models: usize, models_with_drift: usize, skipped_models: usize) {
     println!("\n{}", "=".repeat(60).bright_blue());
     println!("{}", "Schema Drift Detection Report".bold().bright_blue());
     println!("{}", "=".repeat(60).bright_blue());
@@ -826,6 +878,9 @@ fn print_drift_summary(report: &Report, checked_models: usize, models_with_drift
 
     println!("Models checked: {}", checked_models);
     println!("Models with drift: {}", models_with_drift);
+    if skipped_models > 0 {
+        println!("Models skipped: {}", format!("{}", skipped_models).yellow());
+    }
     println!();
 
     println!("{}", "Summary:".bold());
