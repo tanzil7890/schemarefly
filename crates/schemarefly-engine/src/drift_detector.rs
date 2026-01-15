@@ -3,7 +3,7 @@
 //! This module implements the core drift detection logic that compares
 //! schemas defined in dbt manifests/contracts against actual warehouse schemas.
 
-use schemarefly_core::{Schema, LogicalType, Diagnostic, DiagnosticCode, Severity, Location};
+use schemarefly_core::{Schema, LogicalType, Diagnostic, DiagnosticCode, Severity, Location, Nullability};
 use std::collections::HashSet;
 
 /// Result of comparing expected vs actual warehouse schema
@@ -25,9 +25,10 @@ pub struct DriftDetection {
 impl DriftDetection {
     /// Create a new drift detection by comparing schemas
     ///
-    /// This detects three types of drift:
+    /// This detects four types of drift:
     /// - Dropped columns: columns in expected but not in actual
     /// - Type changes: columns with different types
+    /// - Nullability changes: columns with different nullability constraints
     /// - New columns: columns in actual but not in expected (info level)
     pub fn detect(
         table_id: impl Into<String>,
@@ -69,6 +70,41 @@ impl DriftDetection {
                             }),
                             expected: Some(expected_col.logical_type.to_string()),
                             actual: Some(actual_col.logical_type.to_string()),
+                            impact: vec![],
+                        });
+                    }
+
+                    // Check for nullability drift (only if both are known)
+                    if let Some((expected_null, actual_null)) = nullability_changed(&expected_col.nullable, &actual_col.nullable) {
+                        let severity = match (&expected_col.nullable, &actual_col.nullable) {
+                            // NOT NULL -> NULL is a warning (looser constraint)
+                            (Nullability::No, Nullability::Yes) => Severity::Warn,
+                            // NULL -> NOT NULL is an error (stricter constraint, may break inserts)
+                            (Nullability::Yes, Nullability::No) => Severity::Error,
+                            // Other changes are warnings
+                            _ => Severity::Warn,
+                        };
+
+                        let message = format!(
+                            "Column '{}' nullability changed: was {}, now {}",
+                            expected_col.name,
+                            expected_null,
+                            actual_null
+                        );
+
+                        diagnostics.push(Diagnostic {
+                            code: DiagnosticCode::DriftNullabilityChange,
+                            severity,
+                            message,
+                            location: file_path.as_ref().map(|path| Location {
+                                file: path.clone(),
+                                line: None,
+                                column: None,
+                                end_line: None,
+                                end_column: None,
+                            }),
+                            expected: Some(expected_null.to_string()),
+                            actual: Some(actual_null.to_string()),
                             impact: vec![],
                         });
                     }
@@ -194,6 +230,23 @@ fn types_match(expected: &LogicalType, actual: &LogicalType) -> bool {
     }
 }
 
+/// Check if nullability has changed between expected and actual
+///
+/// Returns Some((expected_str, actual_str)) if there's a meaningful change,
+/// None if nullability matches or if either is Unknown (can't determine)
+fn nullability_changed(expected: &Nullability, actual: &Nullability) -> Option<(&'static str, &'static str)> {
+    match (expected, actual) {
+        // Same nullability - no change
+        (Nullability::Yes, Nullability::Yes) => None,
+        (Nullability::No, Nullability::No) => None,
+        (Nullability::Unknown, _) | (_, Nullability::Unknown) => None, // Can't determine
+
+        // Actual changes
+        (Nullability::No, Nullability::Yes) => Some(("NOT NULL", "NULL")),
+        (Nullability::Yes, Nullability::No) => Some(("NULL", "NOT NULL")),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -289,5 +342,76 @@ mod tests {
         assert_eq!(drift.info_count(), 1);  // new column
         assert!(drift.has_errors());
         assert!(drift.has_info());
+    }
+
+    #[test]
+    fn test_nullability_not_null_to_null() {
+        // NOT NULL -> NULL is a warning (looser constraint)
+        let expected = Schema::from_columns(vec![
+            Column::new("id", LogicalType::Int).with_nullability(Nullability::No),
+        ]);
+        let actual = Schema::from_columns(vec![
+            Column::new("id", LogicalType::Int).with_nullability(Nullability::Yes),
+        ]);
+
+        let drift = DriftDetection::detect("test_table", &expected, &actual, None);
+
+        assert_eq!(drift.warning_count(), 1);
+        assert!(drift.has_warnings());
+        assert!(!drift.has_errors());
+        assert!(drift.diagnostics[0].code == DiagnosticCode::DriftNullabilityChange);
+        assert!(drift.diagnostics[0].message.contains("NOT NULL"));
+        assert!(drift.diagnostics[0].message.contains("NULL"));
+    }
+
+    #[test]
+    fn test_nullability_null_to_not_null() {
+        // NULL -> NOT NULL is an error (stricter constraint, may break inserts)
+        let expected = Schema::from_columns(vec![
+            Column::new("id", LogicalType::Int).with_nullability(Nullability::Yes),
+        ]);
+        let actual = Schema::from_columns(vec![
+            Column::new("id", LogicalType::Int).with_nullability(Nullability::No),
+        ]);
+
+        let drift = DriftDetection::detect("test_table", &expected, &actual, None);
+
+        assert_eq!(drift.error_count(), 1);
+        assert!(drift.has_errors());
+        assert!(drift.diagnostics[0].code == DiagnosticCode::DriftNullabilityChange);
+        assert!(drift.diagnostics[0].severity == Severity::Error);
+    }
+
+    #[test]
+    fn test_nullability_unknown_no_drift() {
+        // Unknown nullability should not trigger drift
+        let expected = Schema::from_columns(vec![
+            Column::new("id", LogicalType::Int).with_nullability(Nullability::Unknown),
+        ]);
+        let actual = Schema::from_columns(vec![
+            Column::new("id", LogicalType::Int).with_nullability(Nullability::Yes),
+        ]);
+
+        let drift = DriftDetection::detect("test_table", &expected, &actual, None);
+
+        assert!(!drift.has_errors());
+        assert!(!drift.has_warnings());
+    }
+
+    #[test]
+    fn test_nullability_same_no_drift() {
+        // Same nullability should not trigger drift
+        let expected = Schema::from_columns(vec![
+            Column::new("id", LogicalType::Int).with_nullability(Nullability::No),
+        ]);
+        let actual = Schema::from_columns(vec![
+            Column::new("id", LogicalType::Int).with_nullability(Nullability::No),
+        ]);
+
+        let drift = DriftDetection::detect("test_table", &expected, &actual, None);
+
+        assert!(!drift.has_errors());
+        assert!(!drift.has_warnings());
+        assert!(!drift.has_info());
     }
 }
