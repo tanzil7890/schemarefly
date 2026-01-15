@@ -173,8 +173,8 @@ jobs:
             target
           key: ${{ runner.os }}-${{ matrix.target }}-cargo-release-${{ hashFiles('**/Cargo.lock') }}
 
-      - name: Build release binary
-        run: cargo build --release --target ${{ matrix.target }}
+      - name: Build release binary (with warehouse support)
+        run: cargo build --release --target ${{ matrix.target }} --features all-warehouses
 
       - name: Prepare artifact (Unix)
         if: runner.os != 'Windows'

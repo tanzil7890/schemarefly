@@ -90,8 +90,8 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
-      - name: Build release binary
-        run: cargo build --release --target ${{ matrix.target }}
+      - name: Build release binary (with warehouse support)
+        run: cargo build --release --target ${{ matrix.target }} --features all-warehouses
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -99,6 +99,23 @@ jobs:
           name: ${{ matrix.artifact }}-${{ matrix.target }}
           path: target/${{ matrix.target }}/release/${{ matrix.artifact }}
           if-no-files-found: error
+
+  # Build without warehouse features to ensure it still works for users who don't need them
+  build-minimal:
+    name: Build Minimal (No Warehouse)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build without warehouse features
+        run: cargo build --release
+
+      - name: Verify binary runs
+        run: ./target/release/schemarefly --help
 
   compatibility:
     name: Compatibility Check
