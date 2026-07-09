@@ -18,6 +18,9 @@ version = "0.1.0"
 edition = "2021"
 authors = ["Mohammad Tanzil Idrisi"]
 license = "MIT OR Apache-2.0"
+repository = "https://github.com/tanzil7890/schemarefly"
+homepage = "https://github.com/tanzil7890/schemarefly"
+rust-version = "1.70"
 
 [workspace.dependencies]
 # Shared dependencies
@@ -70,10 +73,10 @@ postgres-native-tls = "0.5"
 native-tls = "0.2"
 
 # Internal workspace crates
-schemarefly-core = { path = "crates/schemarefly-core" }
-schemarefly-dbt = { path = "crates/schemarefly-dbt" }
-schemarefly-sql = { path = "crates/schemarefly-sql" }
-schemarefly-jinja = { path = "crates/schemarefly-jinja" }
-schemarefly-catalog = { path = "crates/schemarefly-catalog" }
-schemarefly-engine = { path = "crates/schemarefly-engine" }
-schemarefly-incremental = { path = "crates/schemarefly-incremental" }
+schemarefly-core = { path = "crates/schemarefly-core", version = "0.1.0" }
+schemarefly-dbt = { path = "crates/schemarefly-dbt", version = "0.1.0" }
+schemarefly-sql = { path = "crates/schemarefly-sql", version = "0.1.0" }
+schemarefly-jinja = { path = "crates/schemarefly-jinja", version = "0.1.0" }
+schemarefly-catalog = { path = "crates/schemarefly-catalog", version = "0.1.0" }
+schemarefly-engine = { path = "crates/schemarefly-engine", version = "0.1.0" }
+schemarefly-incremental = { path = "crates/schemarefly-incremental", version = "0.1.0" }

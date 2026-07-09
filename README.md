@@ -18,59 +18,93 @@ SchemaRefly is a Rust-based static analysis tool that validates dbt schema contr
 
 ### Installation
 
-#### Pre-built Binaries (Recommended)
+#### Build from Source (works today)
 
-Download the latest release from [GitHub Releases](https://github.com/owner/schemarefly/releases):
+Requires Rust 1.70+ and Cargo.
 
 ```bash
-# Linux x86_64
-curl -fsSL https://github.com/owner/schemarefly/releases/latest/download/schemarefly-x86_64-unknown-linux-gnu.tar.gz | tar -xz
+git clone https://github.com/tanzil7890/schemarefly.git
+cd schemarefly
+
+# Default build (no warehouse adapters)
+cargo build --release --bin schemarefly
+
+# Or build with warehouse drift detection
+cargo build --release --bin schemarefly --features all-warehouses
+
+# Binary is at target/release/schemarefly — put it on your PATH
+sudo cp target/release/schemarefly /usr/local/bin/
+schemarefly --version
+```
+
+#### Pre-built Binaries
+
+> **Status:** No tagged release has been published yet. Pre-built binaries become
+> available once `v0.1.0` is tagged (build from source in the meantime). Push a
+> `vX.Y.Z` tag to trigger [`.github/workflows/release.yml`](.github/workflows/release.yml),
+> which cross-builds all platforms and attaches signed archives to the release.
+
+Once a release exists, download it from
+[GitHub Releases](https://github.com/tanzil7890/schemarefly/releases). Archive
+filenames embed the version and target triple:
+
+```bash
+VERSION=0.1.0
+
+# Linux x86_64 (GNU)
+curl -fsSL https://github.com/tanzil7890/schemarefly/releases/download/v${VERSION}/schemarefly-${VERSION}-x86_64-unknown-linux-gnu.tar.gz | tar -xz
+
+# Linux x86_64 (static / MUSL)
+curl -fsSL https://github.com/tanzil7890/schemarefly/releases/download/v${VERSION}/schemarefly-${VERSION}-x86_64-unknown-linux-musl.tar.gz | tar -xz
 
 # macOS Apple Silicon
-curl -fsSL https://github.com/owner/schemarefly/releases/latest/download/schemarefly-aarch64-apple-darwin.tar.gz | tar -xz
+curl -fsSL https://github.com/tanzil7890/schemarefly/releases/download/v${VERSION}/schemarefly-${VERSION}-aarch64-apple-darwin.tar.gz | tar -xz
 
 # macOS Intel
-curl -fsSL https://github.com/owner/schemarefly/releases/latest/download/schemarefly-x86_64-apple-darwin.tar.gz | tar -xz
+curl -fsSL https://github.com/tanzil7890/schemarefly/releases/download/v${VERSION}/schemarefly-${VERSION}-x86_64-apple-darwin.tar.gz | tar -xz
 
 # Move to PATH
-sudo mv schemarefly-*/schemarefly /usr/local/bin/
+sudo mv schemarefly-${VERSION}-*/schemarefly /usr/local/bin/
 ```
+
+Windows: download `schemarefly-${VERSION}-x86_64-pc-windows-msvc.zip` from the releases page.
 
 #### Verify Download
 
-All binaries include SHA-256 checksums and GitHub artifact attestations:
+All release archives ship with SHA-256 checksums and GitHub artifact attestations:
 
 ```bash
 # Verify checksum
 shasum -a 256 -c schemarefly-*.sha256
 
 # Verify attestation (requires GitHub CLI)
-gh attestation verify schemarefly-*.tar.gz --repo owner/schemarefly
-```
-
-#### Build from Source
-
-```bash
-# Build from source
-cargo build --release --bin schemarefly
-
-# The binary will be in target/release/schemarefly
+gh attestation verify schemarefly-*.tar.gz --repo tanzil7890/schemarefly
 ```
 
 ### Usage
 
+Run inside a dbt project. SchemaRefly reads the compiled manifest, so run
+`dbt compile` first (it produces `target/manifest.json`).
+
 ```bash
-# Run a no-op check ()
+# Validate contracts for all models (writes report.json)
 schemarefly check
 
-# With verbose output
+# Verbose output
 schemarefly check --verbose
 
-# Generate markdown report
+# Generate a markdown report alongside the JSON
 schemarefly check --markdown report.md
 
-# Use custom config
+# Use a custom config file
 schemarefly check --config my-config.toml
+```
+
+Try it against the bundled example project:
+
+```bash
+cd fixtures/mini-dbt-project
+schemarefly check --verbose
 ```
 
 ## Configuration
@@ -458,6 +492,7 @@ MIT OR Apache-2.0
 
 ## Contributing
 
-This project is in active development.  is complete, and we're building towards  (dbt ingestion).
+This project is in active development.
 
-For questions or contributions, please open an issue or PR.
+For questions or contributions, please open an issue or PR at
+[github.com/tanzil7890/schemarefly](https://github.com/tanzil7890/schemarefly).

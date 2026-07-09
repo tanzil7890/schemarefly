@@ -49,7 +49,7 @@ Search for "SchemaRefly" in the VS Code extensions panel.
 
 ### Option 2: Install from VSIX
 
-Download the latest `.vsix` file from [GitHub Releases](https://github.com/owner/schemarefly/releases) and install:
+Download the latest `.vsix` file from [GitHub Releases](https://github.com/tanzil7890/schemarefly/releases) and install:
 
 ```bash
 code --install-extension schemarefly-0.1.0.vsix
@@ -61,7 +61,7 @@ The extension needs the `schemarefly-lsp` binary:
 
 ```bash
 # Download from releases
-curl -fsSL https://github.com/owner/schemarefly/releases/latest/download/schemarefly-x86_64-unknown-linux-gnu.tar.gz | tar -xz
+curl -fsSL https://github.com/tanzil7890/schemarefly/releases/latest/download/schemarefly-x86_64-unknown-linux-gnu.tar.gz | tar -xz
 sudo mv schemarefly-*/schemarefly-lsp /usr/local/bin/
 
 # Or build from source
@@ -166,7 +166,7 @@ npm run package
 
 ## Contributing
 
-See the main [SchemaRefly repository](https://github.com/owner/schemarefly) for contribution guidelines.
+See the main [SchemaRefly repository](https://github.com/tanzil7890/schemarefly) for contribution guidelines.
 
 ## License
 

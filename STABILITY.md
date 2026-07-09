@@ -277,7 +277,7 @@ All release binaries include:
 
 2. **GitHub artifact attestations**: Verify provenance
    ```bash
-   gh attestation verify schemarefly-*.tar.gz --repo owner/schemarefly
+   gh attestation verify schemarefly-*.tar.gz --repo tanzil7890/schemarefly
    ```
 
 ### Reproducible Builds

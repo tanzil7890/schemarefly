@@ -213,7 +213,7 @@ jobs:
 
       - name: Install SchemaRefly
         run: |
-          curl -fsSL https://github.com/owner/schemarefly/releases/latest/download/schemarefly-x86_64-unknown-linux-gnu.tar.gz | tar -xz
+          curl -fsSL https://github.com/tanzil7890/schemarefly/releases/latest/download/schemarefly-x86_64-unknown-linux-gnu.tar.gz | tar -xz
           sudo mv schemarefly-*/schemarefly /usr/local/bin/
 
       - name: Setup dbt

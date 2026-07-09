@@ -100,5 +100,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-[Unreleased]: https://github.com/owner/schemarefly/compare/v0.1.0...HEAD
-[0.1.0]: https://github.com/owner/schemarefly/releases/tag/v0.1.0
+[Unreleased]: https://github.com/tanzil7890/schemarefly/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/tanzil7890/schemarefly/releases/tag/v0.1.0
