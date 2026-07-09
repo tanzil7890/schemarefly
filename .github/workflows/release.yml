@@ -115,16 +115,10 @@ jobs:
             target: x86_64-unknown-linux-gnu
             archive: tar.gz
 
-          # Linux x86_64 (MUSL - static binary)
-          - os: ubuntu-latest
-            target: x86_64-unknown-linux-musl
-            archive: tar.gz
-
-          # Linux ARM64
-          - os: ubuntu-latest
-            target: aarch64-unknown-linux-gnu
-            archive: tar.gz
-            cross: true
+          # NOTE: aarch64-unknown-linux-gnu and x86_64-unknown-linux-musl are
+          # temporarily disabled: the `all-warehouses` feature pulls in
+          # openssl-sys (via native-tls) which does not cross-compile / build
+          # static without a vendored OpenSSL. Re-enable once TLS is vendored.
 
           # macOS x86_64 (Intel)
           - os: macos-latest
@@ -149,22 +143,6 @@ jobs:
         uses: dtolnay/rust-toolchain@1.91.0
         with:
           targets: ${{ matrix.target }}
-
-      - name: Install musl-tools (Linux MUSL)
-        if: matrix.target == 'x86_64-unknown-linux-musl'
-        run: sudo apt-get update && sudo apt-get install -y musl-tools
-
-      - name: Install cross-compilation tools (Linux ARM64)
-        if: matrix.cross
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu
-
-      - name: Configure cross-compilation (Linux ARM64)
-        if: matrix.cross
-        run: |
-          echo "[target.aarch64-unknown-linux-gnu]" >> ~/.cargo/config.toml
-          echo "linker = \"aarch64-linux-gnu-gcc\"" >> ~/.cargo/config.toml
 
       - name: Cache cargo registry
         uses: actions/cache@v4
@@ -289,8 +267,6 @@ jobs:
           | Platform | Architecture | File |
           |----------|--------------|------|
           | Linux | x86_64 (GNU) | `schemarefly-${VERSION}-x86_64-unknown-linux-gnu.tar.gz` |
-          | Linux | x86_64 (MUSL/static) | `schemarefly-${VERSION}-x86_64-unknown-linux-musl.tar.gz` |
-          | Linux | ARM64 | `schemarefly-${VERSION}-aarch64-unknown-linux-gnu.tar.gz` |
           | macOS | x86_64 (Intel) | `schemarefly-${VERSION}-x86_64-apple-darwin.tar.gz` |
           | macOS | ARM64 (Apple Silicon) | `schemarefly-${VERSION}-aarch64-apple-darwin.tar.gz` |
           | Windows | x86_64 | `schemarefly-${VERSION}-x86_64-pc-windows-msvc.zip` |

@@ -54,9 +54,6 @@ VERSION=0.1.0
 # Linux x86_64 (GNU)
 curl -fsSL https://github.com/tanzil7890/schemarefly/releases/download/v${VERSION}/schemarefly-${VERSION}-x86_64-unknown-linux-gnu.tar.gz | tar -xz
 
-# Linux x86_64 (static / MUSL)
-curl -fsSL https://github.com/tanzil7890/schemarefly/releases/download/v${VERSION}/schemarefly-${VERSION}-x86_64-unknown-linux-musl.tar.gz | tar -xz
-
 # macOS Apple Silicon
 curl -fsSL https://github.com/tanzil7890/schemarefly/releases/download/v${VERSION}/schemarefly-${VERSION}-aarch64-apple-darwin.tar.gz | tar -xz
 
