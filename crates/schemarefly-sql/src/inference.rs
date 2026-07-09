@@ -407,6 +407,7 @@ impl<'a> SchemaInference<'a> {
     }
 
     /// Convert sqlparser DataType to LogicalType
+    #[allow(clippy::only_used_in_recursion)]
     fn sqlparser_type_to_logical(&self, data_type: &DataType) -> Result<LogicalType, InferenceError> {
         match data_type {
             DataType::SmallInt(_) | DataType::Int(_) | DataType::BigInt(_) | DataType::Integer(_) => {
