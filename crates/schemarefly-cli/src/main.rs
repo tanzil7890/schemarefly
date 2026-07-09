@@ -139,7 +139,7 @@ async fn main() -> Result<()> {
 
     match cli.command {
         Commands::Check { output, markdown, state, modified_only, pr_comment } => {
-            check_command(&config, &output, markdown.as_ref().map(|v| v.as_path()), state.as_ref(), modified_only, pr_comment, cli.verbose)
+            check_command(&config, &output, markdown.as_deref(), state.as_ref(), modified_only, pr_comment, cli.verbose)
         }
         Commands::Init { path, dialect, skip_workflow, force } => {
             init_command(path.as_ref(), &dialect, skip_workflow, force, cli.verbose)
@@ -159,7 +159,7 @@ async fn main() -> Result<()> {
 /// Check command - validate schema contracts (with Salsa incremental computation)
 fn check_command(
     config: &Config,
-    output: &PathBuf,
+    output: &Path,
     markdown: Option<&Path>,
     state_path: Option<&PathBuf>,
     modified_only: bool,
@@ -469,7 +469,7 @@ fn check_command(
 }
 
 /// Impact command - show downstream dependencies
-fn impact_command(_config: &Config, model: &str, manifest_path: &PathBuf, verbose: bool) -> Result<()> {
+fn impact_command(_config: &Config, model: &str, manifest_path: &Path, verbose: bool) -> Result<()> {
     if verbose {
         eprintln!("{} {}", "Loading manifest from:".cyan(), manifest_path.display());
     }
@@ -534,11 +534,10 @@ fn impact_command(_config: &Config, model: &str, manifest_path: &PathBuf, verbos
 /// Find node ID from short name or unique_id
 fn find_node_id(manifest: &Manifest, name: &str) -> Result<String> {
     // If it's already a unique_id (contains dots), use it directly
-    if name.contains('.') {
-        if manifest.get_node(name).is_some() || manifest.get_source(name).is_some() {
+    if name.contains('.')
+        && (manifest.get_node(name).is_some() || manifest.get_source(name).is_some()) {
             return Ok(name.to_string());
         }
-    }
 
     // Otherwise, search for matching model name
     for (node_id, node) in manifest.models() {
@@ -562,7 +561,7 @@ fn find_node_id(manifest: &Manifest, name: &str) -> Result<String> {
 }
 
 /// Drift command - detect warehouse schema changes
-async fn drift_command(config: &Config, output: &PathBuf, verbose: bool) -> Result<()> {
+async fn drift_command(config: &Config, output: &Path, verbose: bool) -> Result<()> {
     // Load .env file if present (for environment variable configuration)
     if let Err(e) = dotenvy::dotenv() {
         // Only warn if verbose - it's okay if .env doesn't exist
@@ -939,7 +938,7 @@ fn init_command(
     force: bool,
     verbose: bool,
 ) -> Result<()> {
-    let project_path = path.map(|p| p.clone()).unwrap_or_else(|| PathBuf::from("."));
+    let project_path = path.cloned().unwrap_or_else(|| PathBuf::from("."));
 
     if verbose {
         eprintln!("{} {}...", "Initializing SchemaRefly in".cyan(), project_path.display());
@@ -1183,11 +1182,12 @@ jobs:
 }
 
 /// Init contracts command - generate contracts from current schemas
+#[allow(clippy::too_many_arguments)]
 fn init_contracts_command(
     _config: &Config,
     models: &[String],
-    output_dir: &PathBuf,
-    manifest_path: &PathBuf,
+    output_dir: &Path,
+    manifest_path: &Path,
     catalog_path: Option<&PathBuf>,
     force: bool,
     enforced_only: bool,
@@ -1325,10 +1325,10 @@ fn generate_contract_yaml(
     yaml.push_str(&format!("# Generated contract for {}\n", node.name));
     yaml.push_str(&format!("# Model: {}\n", node_id));
     yaml.push_str(&format!("# Path: {}\n", node.original_file_path));
-    yaml.push_str("\n");
+    yaml.push('\n');
     yaml.push_str("# Copy this to your schema.yml file under the model definition\n");
     yaml.push_str("# See: https://docs.getdbt.com/docs/collaborate/govern/model-contracts\n");
-    yaml.push_str("\n");
+    yaml.push('\n');
 
     yaml.push_str(&format!("- name: {}\n", node.name));
     yaml.push_str("  config:\n");
@@ -1445,7 +1445,7 @@ fn infer_columns_from_sql(sql: &str) -> Option<Vec<(String, String, Option<Strin
                 col[as_idx + 4..].trim().to_string()
             } else {
                 // Get the last part after any dots
-                col.split('.').last()?.trim().to_string()
+                col.split('.').next_back()?.trim().to_string()
             };
 
             // Clean up the name
@@ -1552,13 +1552,13 @@ fn generate_markdown_report(report: &Report, state_comparison: Option<&StateComp
         md.push_str("This report was generated in **Slim CI mode**, comparing against a production state manifest.\n\n");
 
         md.push_str("### Change Summary\n\n");
-        md.push_str(&format!("| Metric | Count |\n"));
-        md.push_str(&format!("|--------|-------|\n"));
+        md.push_str("| Metric | Count |\n");
+        md.push_str("|--------|-------|\n");
         md.push_str(&format!("| Modified models | {} |\n", comparison.modified_models.len()));
         md.push_str(&format!("| New models | {} |\n", comparison.new_models.len()));
         md.push_str(&format!("| Deleted models | {} |\n", comparison.deleted_models.len()));
         md.push_str(&format!("| Total blast radius | {} |\n", comparison.total_blast_radius));
-        md.push_str("\n");
+        md.push('\n');
 
         if !comparison.modified_models.is_empty() {
             md.push_str("### Modified Models\n\n");
@@ -1575,7 +1575,7 @@ fn generate_markdown_report(report: &Report, state_comparison: Option<&StateComp
                         md.push_str(&format!("- `{}`\n", downstream));
                     }
                 }
-                md.push_str("\n");
+                md.push('\n');
             }
         }
 
@@ -1585,7 +1585,7 @@ fn generate_markdown_report(report: &Report, state_comparison: Option<&StateComp
             for deleted in &comparison.deleted_models {
                 md.push_str(&format!("- `{}`\n", deleted));
             }
-            md.push_str("\n");
+            md.push('\n');
         }
 
         md.push_str("---\n\n");
@@ -1596,7 +1596,7 @@ fn generate_markdown_report(report: &Report, state_comparison: Option<&StateComp
     md.push_str(&format!("- Errors: {}\n", report.summary.errors));
     md.push_str(&format!("- Warnings: {}\n", report.summary.warnings));
     md.push_str(&format!("- Info: {}\n", report.summary.info));
-    md.push_str("\n");
+    md.push('\n');
 
     if report.diagnostics.is_empty() {
         md.push_str("✅ **No issues found!**\n");
@@ -1633,7 +1633,7 @@ fn generate_markdown_report(report: &Report, state_comparison: Option<&StateComp
                 for model in &diag.impact {
                     md.push_str(&format!("- {}\n", model));
                 }
-                md.push_str("\n");
+                md.push('\n');
             }
         }
     }
@@ -1672,7 +1672,7 @@ fn generate_pr_comment(report: &Report, state_comparison: Option<&StateCompariso
         md.push_str(&format!("| Modified models | {} |\n", comparison.modified_models.len()));
         md.push_str(&format!("| Blast radius | {} |\n", comparison.total_blast_radius));
     }
-    md.push_str("\n");
+    md.push('\n');
 
     // Show errors prominently (not collapsed)
     if report.summary.errors > 0 {
@@ -1685,11 +1685,11 @@ fn generate_pr_comment(report: &Report, state_comparison: Option<&StateCompariso
                     if let Some(line) = loc.line {
                         md.push_str(&format!(":{}", line));
                     }
-                    md.push_str("\n");
+                    md.push('\n');
                 }
             }
         }
-        md.push_str("\n");
+        md.push('\n');
     }
 
     // Collapsible section for warnings
@@ -1704,7 +1704,7 @@ fn generate_pr_comment(report: &Report, state_comparison: Option<&StateCompariso
                     if let Some(line) = loc.line {
                         md.push_str(&format!(":{}", line));
                     }
-                    md.push_str("\n");
+                    md.push('\n');
                 }
             }
         }
@@ -1739,7 +1739,7 @@ fn generate_pr_comment(report: &Report, state_comparison: Option<&StateCompariso
             for deleted in &comparison.deleted_models {
                 md.push_str(&format!("- `{}`\n", deleted));
             }
-            md.push_str("\n");
+            md.push('\n');
         }
     }
 

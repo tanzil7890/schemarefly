@@ -162,6 +162,7 @@ impl BigQueryAdapter {
     /// - `with_adc()` for Application Default Credentials
     /// - `from_service_account_file()` for service account key file
     /// - `from_service_account_json()` for inline service account JSON
+    #[allow(unused_variables)]
     pub fn new(project_id: impl Into<String>, _credentials: impl Into<String>) -> Self {
         #[cfg(feature = "bigquery")]
         {

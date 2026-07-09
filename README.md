@@ -20,7 +20,7 @@ SchemaRefly is a Rust-based static analysis tool that validates dbt schema contr
 
 #### Build from Source (works today)
 
-Requires Rust 1.70+ and Cargo.
+Requires Rust 1.74+ and Cargo.
 
 ```bash
 git clone https://github.com/tanzil7890/schemarefly.git
@@ -448,7 +448,7 @@ The extension requires the `schemarefly-lsp` binary. See [editors/vscode/README.
 ## Development
 
 ### Prerequisites
-- Rust 1.70+ (uses 2021 edition)
+- Rust 1.74+ (uses 2021 edition)
 - Cargo
 
 ### Build

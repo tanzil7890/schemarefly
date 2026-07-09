@@ -142,7 +142,7 @@ impl CompatReport {
     /// Export report as JSON to file
     pub fn save_json(&self, path: impl AsRef<std::path::Path>) -> std::io::Result<()> {
         let json = self.to_json()
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+            .map_err(std::io::Error::other)?;
         std::fs::write(path, json)?;
         Ok(())
     }

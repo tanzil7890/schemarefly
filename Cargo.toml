@@ -20,7 +20,7 @@ authors = ["Mohammad Tanzil Idrisi"]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/tanzil7890/schemarefly"
 homepage = "https://github.com/tanzil7890/schemarefly"
-rust-version = "1.70"
+rust-version = "1.74"
 
 [workspace.dependencies]
 # Shared dependencies

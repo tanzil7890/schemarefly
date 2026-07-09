@@ -19,7 +19,7 @@ async fn main() {
 
     // Create LSP service
     let (stdin, stdout) = (tokio::io::stdin(), tokio::io::stdout());
-    let (service, socket) = LspService::new(|client| Backend::new(client));
+    let (service, socket) = LspService::new(Backend::new);
 
     // Start the server
     Server::new(stdin, stdout, socket).serve(service).await;

@@ -84,7 +84,7 @@ impl ContractExtractor {
                         let params = &s[start + 1..end];
                         let parts: Vec<&str> = params.split(',').map(|s| s.trim()).collect();
 
-                        let precision = parts.get(0).and_then(|p| p.parse().ok());
+                        let precision = parts.first().and_then(|p| p.parse().ok());
                         let scale = parts.get(1).and_then(|s| s.parse().ok());
 
                         return LogicalType::Decimal { precision, scale };

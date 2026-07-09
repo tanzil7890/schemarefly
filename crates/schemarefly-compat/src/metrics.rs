@@ -78,7 +78,7 @@ impl CompatMetrics {
         let mut codes: Vec<(String, usize)> = self.failure_codes.iter()
             .map(|(k, v)| (k.clone(), *v))
             .collect();
-        codes.sort_by(|a, b| b.1.cmp(&a.1));
+        codes.sort_by_key(|c| std::cmp::Reverse(c.1));
         codes.into_iter().take(n).collect()
     }
 
@@ -116,7 +116,7 @@ impl CompatMetrics {
         *self.failure_codes.entry(detail.code.clone()).or_insert(0) += 1;
 
         // Store sample (up to 3 samples per code)
-        let samples = self.failure_samples.entry(detail.code.clone()).or_insert_with(Vec::new);
+        let samples = self.failure_samples.entry(detail.code.clone()).or_default();
         if samples.len() < 3 {
             samples.push(detail.message.clone());
         }

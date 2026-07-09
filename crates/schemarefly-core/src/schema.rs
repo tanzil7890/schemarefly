@@ -176,6 +176,7 @@ impl Default for Schema {
 
 /// Enforcement policy for contracts
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Default)]
 pub struct EnforcementPolicy {
     /// Allow extra columns not in contract
     pub allow_extra_columns: bool,
@@ -184,14 +185,6 @@ pub struct EnforcementPolicy {
     pub allow_widening: bool,
 }
 
-impl Default for EnforcementPolicy {
-    fn default() -> Self {
-        Self {
-            allow_extra_columns: false,
-            allow_widening: false,
-        }
-    }
-}
 
 /// A contract defines expected schema with enforcement policy
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

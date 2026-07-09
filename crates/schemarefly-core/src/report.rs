@@ -29,6 +29,7 @@ impl std::fmt::Display for ReportVersion {
 
 /// Summary statistics for a report
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Default)]
 pub struct ReportSummary {
     /// Total number of diagnostics
     pub total: usize,
@@ -49,18 +50,6 @@ pub struct ReportSummary {
     pub contracts_validated: usize,
 }
 
-impl Default for ReportSummary {
-    fn default() -> Self {
-        Self {
-            total: 0,
-            errors: 0,
-            warnings: 0,
-            info: 0,
-            models_checked: 0,
-            contracts_validated: 0,
-        }
-    }
-}
 
 /// Check report (report.json v1)
 ///
@@ -214,7 +203,7 @@ impl Report {
     /// Save to file
     pub fn save_to_file(&self, path: &std::path::Path) -> Result<(), std::io::Error> {
         let json = self.to_json()
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+            .map_err(std::io::Error::other)?;
         std::fs::write(path, json)
     }
 }

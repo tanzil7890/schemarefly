@@ -166,7 +166,7 @@ impl NameResolver {
 
                 if let Some(alias) = alias {
                     let resolved = ResolvedName::Table {
-                        name: format!("(subquery)"),
+                        name: "(subquery)".to_string(),
                         alias: Some(alias.name.value.clone()),
                     };
 

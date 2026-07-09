@@ -236,7 +236,7 @@ impl JinjaPreprocessor {
         env.add_function("load_result", |_name: minijinja::Value| -> minijinja::Value {
             // Return structure that supports .table.columns[0].values chain
             // values is a property (array) not a method
-            minijinja::Value::from_serialize(&serde_json::json!({
+            minijinja::Value::from_serialize(serde_json::json!({
                 "data": [],
                 "table": {
                     "columns": [{
@@ -308,7 +308,7 @@ impl JinjaPreprocessor {
 
         // Render the template
         let rendered = self.env
-            .render_str(&preprocessed_sql, &self.context.to_minijinja_value())
+            .render_str(&preprocessed_sql, self.context.to_minijinja_value())
             .map_err(|e| self.jinja_error_to_preprocess_error(e, file_path))?;
 
         Ok(PreprocessResult {

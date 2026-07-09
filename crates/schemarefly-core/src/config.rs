@@ -7,6 +7,7 @@ use crate::diagnostic::{DiagnosticCode, Severity};
 /// SQL dialect configuration
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
+#[derive(Default)]
 pub enum DialectConfig {
     /// BigQuery SQL dialect
     BigQuery,
@@ -18,29 +19,19 @@ pub enum DialectConfig {
     Postgres,
 
     /// Generic ANSI SQL
+    #[default]
     Ansi,
 }
 
-impl Default for DialectConfig {
-    fn default() -> Self {
-        Self::Ansi
-    }
-}
 
 /// Severity threshold overrides for specific diagnostic codes
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Default)]
 pub struct SeverityThreshold {
     /// Map of diagnostic code to severity override
     pub overrides: HashMap<String, Severity>,
 }
 
-impl Default for SeverityThreshold {
-    fn default() -> Self {
-        Self {
-            overrides: HashMap::new(),
-        }
-    }
-}
 
 impl SeverityThreshold {
     /// Get severity for a diagnostic code, or default
@@ -289,6 +280,7 @@ impl WarehouseConfig {
 
 /// Allowlist rules for specific models or patterns
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Default)]
 pub struct AllowlistRules {
     /// Allow type widening for these models (glob patterns)
     #[serde(default)]
@@ -303,15 +295,6 @@ pub struct AllowlistRules {
     pub skip_models: Vec<String>,
 }
 
-impl Default for AllowlistRules {
-    fn default() -> Self {
-        Self {
-            allow_widening: Vec::new(),
-            allow_extra_columns: Vec::new(),
-            skip_models: Vec::new(),
-        }
-    }
-}
 
 impl AllowlistRules {
     /// Check if a model matches any pattern in the list

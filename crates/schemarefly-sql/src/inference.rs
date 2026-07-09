@@ -391,7 +391,7 @@ impl<'a> SchemaInference<'a> {
 
                 // Infer result type based on operation
                 let result_type = self.infer_binary_op_type(&left_type, &right_type, op)?;
-                Ok((result_type, format!("expr")))
+                Ok((result_type, "expr".to_string()))
             }
 
             Expr::Case { .. } => {
@@ -434,7 +434,7 @@ impl<'a> SchemaInference<'a> {
                         let precision = Some((*p).min(u16::MAX as u64) as u16);
                         // Handle scale - convert from i64/u64 to u16
                         // Note: SQL scale is typically non-negative in most systems
-                        let scale = Some((*s as u64).min(u16::MAX as u64) as u16);
+                        let scale = Some((*s).min(u16::MAX as u64) as u16);
                         Ok(LogicalType::Decimal { precision, scale })
                     }
                 }
@@ -501,13 +501,9 @@ impl<'a> SchemaInference<'a> {
             "SUM" | "AVG" | "MIN" | "MAX" => {
                 // Return type depends on argument type
                 // For simplicity, we'll return the argument type
-                if let Some(FunctionArg::Unnamed(arg_expr)) = args.first() {
-                    if let sqlparser::ast::FunctionArgExpr::Expr(expr) = arg_expr {
-                        let (arg_type, _) = self.infer_expr(expr, source_schema)?;
-                        arg_type
-                    } else {
-                        LogicalType::Unknown
-                    }
+                if let Some(FunctionArg::Unnamed(sqlparser::ast::FunctionArgExpr::Expr(expr))) = args.first() {
+                    let (arg_type, _) = self.infer_expr(expr, source_schema)?;
+                    arg_type
                 } else {
                     LogicalType::Unknown
                 }
@@ -516,13 +512,9 @@ impl<'a> SchemaInference<'a> {
             "NOW" | "CURRENT_TIMESTAMP" | "CURRENT_DATE" => LogicalType::Timestamp,
             "COALESCE" | "IFNULL" | "NULLIF" => {
                 // Return type is the type of the first argument
-                if let Some(FunctionArg::Unnamed(arg_expr)) = args.first() {
-                    if let sqlparser::ast::FunctionArgExpr::Expr(expr) = arg_expr {
-                        let (arg_type, _) = self.infer_expr(expr, source_schema)?;
-                        arg_type
-                    } else {
-                        LogicalType::Unknown
-                    }
+                if let Some(FunctionArg::Unnamed(sqlparser::ast::FunctionArgExpr::Expr(expr))) = args.first() {
+                    let (arg_type, _) = self.infer_expr(expr, source_schema)?;
+                    arg_type
                 } else {
                     LogicalType::Unknown
                 }

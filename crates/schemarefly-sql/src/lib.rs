@@ -7,6 +7,10 @@
 //! - Schema inference from SQL queries
 //! - Extracting location information for diagnostics
 
+// Diagnostic-carrying error enums are intentionally large; boxing them would
+// complicate the hot parse/infer paths for no real benefit here.
+#![allow(clippy::result_large_err)]
+
 pub mod parser;
 pub mod resolver;
 pub mod dbt_functions;

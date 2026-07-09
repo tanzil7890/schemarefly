@@ -168,8 +168,12 @@ pub struct SnowflakeAdapter {
     #[cfg(feature = "snowflake")]
     api: SnowflakeApi,
 
+    // Retained for diagnostics / future reconnection logic.
+    #[allow(dead_code)]
     account: String,
+    #[allow(dead_code)]
     warehouse: Option<String>,
+    #[allow(dead_code)]
     role: Option<String>,
 
     #[cfg(not(feature = "snowflake"))]
@@ -178,6 +182,7 @@ pub struct SnowflakeAdapter {
 
 impl SnowflakeAdapter {
     /// Create a new Snowflake adapter with password authentication (returns builder)
+    #[allow(clippy::new_ret_no_self)]
     pub fn new(
         account: impl Into<String>,
         username: impl Into<String>,

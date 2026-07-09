@@ -498,14 +498,12 @@ impl PostgresAdapter {
 
             _ => {
                 // Handle array notation like "integer[]" or "_int4"
-                if pg_type.ends_with("[]") {
-                    let element_type_str = &pg_type[..pg_type.len() - 2];
+                if let Some(element_type_str) = pg_type.strip_suffix("[]") {
                     LogicalType::Array {
                         element_type: Box::new(Self::map_postgres_type(element_type_str)),
                     }
-                } else if pg_type.starts_with('_') {
+                } else if let Some(element_type_str) = pg_type.strip_prefix('_') {
                     // PostgreSQL internal array notation (e.g., _int4 for int4[])
-                    let element_type_str = &pg_type[1..];
                     LogicalType::Array {
                         element_type: Box::new(Self::map_postgres_type(element_type_str)),
                     }
@@ -622,9 +620,9 @@ impl WarehouseAdapter for PostgresAdapter {
                     (Some(p), None) => format!("numeric({})", p),
                     _ => data_type.clone(),
                 }
-            } else if udt_name.starts_with('_') {
+            } else if let Some(elem) = udt_name.strip_prefix('_') {
                 // Array type - convert _int4 to int4[]
-                format!("{}[]", &udt_name[1..])
+                format!("{}[]", elem)
             } else {
                 data_type.clone()
             };

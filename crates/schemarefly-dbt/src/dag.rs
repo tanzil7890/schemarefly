@@ -62,7 +62,7 @@ impl DependencyGraph {
                     for dep_id in deps {
                         children
                             .entry(dep_id.clone())
-                            .or_insert_with(Vec::new)
+                            .or_default()
                             .push(node_id.clone());
 
                         nodes.insert(dep_id.clone());
@@ -193,7 +193,7 @@ impl DependencyGraph {
             in_degree.insert(node.clone(), 0);
         }
 
-        for (_, parents) in &self.parents {
+        for parents in self.parents.values() {
             for parent in parents {
                 *in_degree.entry(parent.clone()).or_insert(0) += 0;
             }
